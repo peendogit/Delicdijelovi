@@ -92,6 +92,14 @@ app.get('/api/parts', ctx => {
   return { total, rows };
 });
 
+// Brojevi dijelova po vrsti za trenutni filter (stablo grupa kao u katalogu) — ignoriše izabranu vrstu/grupu
+app.get('/api/parts/facets', ctx => {
+  need(ctx.user, 'ROLE_SP_R', 'ROLE_SP', 'ROLE_WHS_CLERK');
+  const q = { ...ctx.query }; delete q.type_id; delete q.group_id;
+  const { where, params } = listWhere(q);
+  return all(`SELECT p.type_id, count(*) n FROM spare_part p WHERE ${where} GROUP BY p.type_id`, ...params);
+});
+
 export function partDetail(id) {
   const p = get(`SELECT p.*, t.title type_title, t.group_id, g.title group_title, mk.name make_name, l.code_extended location_code,
       v.internal_code vehicle_code, cu.full_name created_by_name, mu.full_name modified_by_name

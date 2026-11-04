@@ -75,7 +75,7 @@ function buildShell() {
     const r = await GET('/api/search?q=' + encodeURIComponent(c));
     if (r.length) openRes(r[0]); else toast('Nije pronađeno: ' + c, 'err');
   } }, '📷') : null;
-  const top = h('header.top', burger, h('a.logo', { href: '#/' }, h('b', 'D'), 'DELIĆ'), h('div.srch', sInp, res), scanBtn,
+  const top = h('header.top', burger, h('a.logo', { href: '#/' }, h('b', 'D'), 'DELIĆ', h('small', 'katalog dijelova')), h('div.srch', sInp, res), scanBtn,
     h('span.me', { onclick: () => go('/profil') }, state.user.full_name));
   clear(app, top, h('div.layout', side, main), bnav);
   side.addEventListener('click', e => { if (e.target.closest('a')) side.classList.remove('open'); });
