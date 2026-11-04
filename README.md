@@ -3,7 +3,7 @@
 Nova aplikacija koja radi **na istoj bazi** kao stari program sa `dijelovi.delicauto.com`
 (sve tabele i kolone su iste — samo prebačene iz MariaDB u SQLite).
 
-**Nema vanjskih paketa** — ne treba `npm install`. Treba samo Node.js 22.13 ili noviji.
+Na Node.js 22.13+ ne treba nikakav paket. Na Node.js 20 pokreni jednom `npm install` (instalira `better-sqlite3`).
 
 ## Moduli
 
@@ -25,9 +25,7 @@ Globalna pretraga gore: šifra dijela (9N32), felne (F189), vozila (440), broj n
 ## Instalacija na VPS (Termius)
 
 ```bash
-# 1) Node.js verzija — mora biti 22.13+
-node -v
-# ako je starija:  curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt install -y nodejs
+# 1) Node.js 20 ili noviji (node -v). Na Node 20 u folderu programa jednom: npm install
 
 # 2) Kod
 mkdir -p /var/www/delic-dijelovi && cd /var/www/delic-dijelovi

@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import zlib from 'node:zlib';
 import readline from 'node:readline';
 import path from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+import { openDb } from '../server/sqlite.js';
 import { loadEnv, ROOT } from '../server/env.js';
 
 loadEnv();
@@ -21,7 +21,7 @@ if (fs.existsSync(dst)) {
   fs.renameSync(dst, bak);
   console.log('Postojeća baza sačuvana kao', bak);
 }
-const db = new DatabaseSync(dst);
+const db = await openDb(dst);
 db.exec('PRAGMA journal_mode=OFF; PRAGMA synchronous=OFF;');
 
 const ESC = { n: '\n', r: '\r', t: '\t', 0: '\0', Z: '\x1a', '\\': '\\', "'": "'", '"': '"', b: '\b' };

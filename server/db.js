@@ -1,12 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+import { openDb } from './sqlite.js';
 import { ROOT } from './env.js';
 
 const dbPath = path.resolve(ROOT, process.env.DB_PATH || './data/delic.db');
 fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 const fresh = !fs.existsSync(dbPath);
-export const db = new DatabaseSync(dbPath);
+export const db = await openDb(dbPath);
 db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000; PRAGMA cache_size=-64000;');
 
 const cache = new Map();

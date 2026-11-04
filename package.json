@@ -4,7 +4,7 @@
   "description": "Auto Otpad Delić — dijelovi, felne, vozila, magacin, nalozi (kopija starog programa, bez vanjskih zavisnosti)",
   "type": "module",
   "engines": {
-    "node": ">=22.13"
+    "node": ">=20"
   },
   "scripts": {
     "start": "node --no-warnings server/index.js",
@@ -12,5 +12,8 @@
     "set-password": "node --no-warnings tools/set-password.js",
     "import-images": "node --no-warnings tools/import-images.js",
     "superadmin": "node --no-warnings tools/make-superadmin.js"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^11.10.0"
   }
 }
