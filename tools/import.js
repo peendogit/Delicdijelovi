@@ -9,14 +9,27 @@ import { openDb } from '../server/sqlite.js';
 import { loadEnv, ROOT } from '../server/env.js';
 
 loadEnv();
-const src = process.argv[2];
-const dst = path.resolve(ROOT, process.argv[3] || process.env.DB_PATH || './data/delic.db');
+const src = process.argv.slice(2).filter(a => !a.startsWith('--'))[0];
+const args = process.argv.slice(2).filter(a => !a.startsWith('--'));
+const dst = path.resolve(ROOT, args[1] || process.env.DB_PATH || './data/delic.db');
 if (!src || !fs.existsSync(src)) {
   console.error('Upotreba: node tools/import.js backup.sql.gz [data/delic.db]');
   process.exit(1);
 }
 fs.mkdirSync(path.dirname(dst), { recursive: true });
 if (fs.existsSync(dst)) {
+  // Zaštita: ponovni uvoz briše sve što je uneseno u NOVOJ aplikaciji poslije backupa
+  if (!process.argv.includes('--force')) {
+    let info = '';
+    try {
+      const old = await openDb(dst);
+      const r = old.prepare('SELECT max(created_date) d, count(*) n FROM spare_part').get();
+      info = `Postojeća baza ima ${r.n} dijelova, zadnji unesen ${r.d}.`;
+      old.close();
+    } catch {}
+    console.log(`\nBAZA VEĆ POSTOJI (${dst}). ${info}\nUvoz će je ZAMIJENITI backupom — sve uneseno u novoj aplikaciji poslije backupa se gubi\n(stara baza se ipak sačuva kao rezerva).\nAko si siguran, ponovi komandu sa  --force  na kraju.\n`);
+    process.exit(1);
+  }
   const bak = dst + '.prije-uvoza-' + Date.now();
   fs.renameSync(dst, bak);
   console.log('Postojeća baza sačuvana kao', bak);

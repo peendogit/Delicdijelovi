@@ -247,6 +247,10 @@ export function gallery(images, { type, objectId, canEdit, onChange }) {
 const routes = [];
 export const route = (pattern, render) => routes.push({ re: new RegExp('^' + pattern.replace(/:(\w+)/g, '([^/]+)') + '$'), keys: [...pattern.matchAll(/:(\w+)/g)].map(m => m[1]), render });
 export const go = path => { location.hash = '#' + path; };
+// ponovo iscrtaj trenutni ekran (bez novog unosa u istoriju — dugme Nazad radi normalno)
+let _render = () => {};
+export const setRenderer = fn => { _render = fn; };
+export const refresh = () => _render({ keepScroll: true });
 export function currentRoute() {
   const raw = location.hash.slice(1) || '/';
   const [path, query] = raw.split('?');
@@ -302,4 +306,37 @@ export function printLabels(labels) {
   </style></head><body>${labels.map(l => `<div class="l"><div class="t">${esc(l.title)}</div>${barcodeSVG(l.code, 38)}<div class="c">${esc(l.code)}</div>${l.sub ? `<div class="s">${esc(l.sub)}</div>` : ''}</div>`).join('')}
   <script>setTimeout(()=>print(),300)<\/script></body></html>`);
   w.document.close();
+}
+
+// ---------- Skeniranje barkoda kamerom (Chrome na Androidu) ----------
+export const canScan = () => 'BarcodeDetector' in window && !!navigator.mediaDevices?.getUserMedia;
+export async function scanBarcode() {
+  if (!canScan()) { toast('Ovaj pregledač ne podržava skeniranje — koristite Chrome na Androidu', 'err'); return null; }
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }); }
+  catch { toast('Nema dozvole za kameru', 'err'); return null; }
+  const video = h('video', { autoplay: true, playsinline: true, muted: true, style: { width: '100%', borderRadius: '10px', background: '#000' } });
+  video.srcObject = stream;
+  const det = new window.BarcodeDetector({ formats: ['code_128', 'code_39', 'qr_code', 'ean_13', 'ean_8', 'data_matrix'] });
+  let done = false;
+  const p = modal('Skeniranje', [video, h('p.muted', 'Usmjerite kameru na barkod etikete.')], [{ label: 'Odustani' }]);
+  const loop = async () => {
+    while (!done) {
+      try {
+        if (video.readyState >= 2) {
+          const r = await det.detect(video);
+          if (r.length) { done = true; navigator.vibrate?.(80); document.querySelector('.modal-bg')?.remove(); stream.getTracks().forEach(t => t.stop()); return r[0].rawValue.trim(); }
+        }
+      } catch {}
+      await new Promise(r => setTimeout(r, 150));
+    }
+    return null;
+  };
+  const res = await Promise.race([loop(), p.then(() => null)]);
+  done = true; stream.getTracks().forEach(t => t.stop());
+  return res;
+}
+// kratki zvuk (novi nalog i sl.)
+export function beep() {
+  try { const c = new AudioContext(); const o = c.createOscillator(); const g = c.createGain(); o.frequency.value = 880; o.connect(g); g.connect(c.destination); g.gain.value = 0.15; o.start(); o.stop(c.currentTime + 0.25); } catch {}
 }

@@ -1,6 +1,6 @@
 import {
   h, clear, route, GET, POST, PUT, DEL, qs, go, can, state, lookups, models, E, img, fmtDT, fmtDate, fmtMoney, field, input, textarea, select, check, combo,
-  locationInput, formData, modal, confirmBox, toast, run, gallery, kv, badge, statusBadge, reqBadge, pager, tabs, loading, empty, setQuery, printLabels, uploadImages,
+  locationInput, formData, modal, confirmBox, toast, run, gallery, kv, badge, statusBadge, reqBadge, pager, tabs, loading, empty, setQuery, printLabels, uploadImages, refresh,
 } from '../lib.js';
 
 export const typeItems = L => L.types.filter(t => t.active).map(t => ({ value: t.id, label: t.title, sub: L.groups.find(g => g.id === t.group_id)?.title }));
@@ -17,7 +17,7 @@ export function partItem(p, opts = {}) {
       h('div.t', p.title),
       h('div.s', h('span.code', p.internal_code), p.catalog_number ? h('span', p.catalog_number) : null, p.side ? h('span', E.side[p.side] || p.side) : null,
         p.location_code ? h('b', '📍 ' + p.location_code) : null, p.vehicle_code ? h('span', '🚗 ' + p.vehicle_code) : null, p.created_date ? h('span', fmtDate(p.created_date)) : null)),
-    h('div.rt', p.price ? h('span.price', fmtMoney(p.price, p.currency_id)) : h('span.muted', 'bez cijene'), p.status === 'SOLD' ? statusBadge('SOLD') : null, p.part_set ? badge('komplet') : null, p.parent_id ? badge('dio kompleta') : null));
+    h('div.rt', p.price ? h('span.price', fmtMoney(p.price, p.currency_id)) : null, p.status === 'SOLD' ? statusBadge('SOLD') : null, p.part_set ? badge('komplet') : null, p.parent_id ? badge('dio kompleta') : null));
 }
 
 route('/dijelovi', async (params, query, main) => {
@@ -141,7 +141,7 @@ async function adTextDialog(kind, id) {
 route('/dijelovi/:id', async ({ id }, query, main) => {
   if (id === 'novi') return partForm(null, query, main);
   const p = await GET('/api/parts/' + id);
-  const reload = () => go('/dijelovi/' + id + '?r=' + Date.now());
+  const reload = () => refresh();
   const sold = p.status === 'SOLD';
   const act = async (fn) => { const r = await fn(); if (r) reload(); };
   const actions = h('div.actions',
@@ -156,14 +156,17 @@ route('/dijelovi/:id', async ({ id }, query, main) => {
     } }, '⧉ Kopiraj') : null,
     h('button', { onclick: () => printLabels([{ code: p.internal_code, title: p.title, sub: [p.catalog_number, p.location_code].filter(Boolean).join(' · ') }]) }, '🏷 Etiketa'),
     h('button', { onclick: () => adTextDialog('part', id) }, '📝 Tekst oglasa'),
-    can('ROLE_SP_ADM') && !p.external_olx_id && !sold ? h('button', { onclick: () => run(() => POST(`/api/olx/publish/part/${id}`), 'Objavljeno na OLX').then(reload) }, 'OLX objavi') : null,
-    can('ROLE_SP_ADM') && p.external_olx_id ? h('button', { onclick: () => run(() => POST(`/api/olx/remove/part/${id}`), 'Uklonjeno sa OLX').then(reload) }, 'OLX ukloni') : null,
+    state.lookups.olx_enabled && can('ROLE_SP_ADM') && !p.external_olx_id && !sold ? h('button', { onclick: () => run(() => POST(`/api/olx/publish/part/${id}`), 'Objavljeno na OLX').then(reload) }, 'OLX objavi') : null,
+    state.lookups.olx_enabled && can('ROLE_SP_ADM') && p.external_olx_id ? h('button', { onclick: () => run(() => POST(`/api/olx/remove/part/${id}`), 'Uklonjeno sa OLX').then(reload) }, 'OLX ukloni') : null,
     can('ROLE_SP_D') ? h('button.danger', { onclick: async () => { if (await confirmBox('Obrisati dio ' + p.internal_code + '?')) { await run(() => DEL('/api/parts/' + id), 'Obrisano'); go('/dijelovi'); } } }, '🗑') : null);
 
   const info = kv([
     ['Šifra', h('span.code', p.internal_code)],
     ['Status', statusBadge(p.status)],
-    ['Cijena', p.price ? h('span.price', fmtMoney(p.price, p.currency_id)) : 'nije unesena'],
+    ['Cijena', h('span', p.price ? h('span.price', fmtMoney(p.price, p.currency_id)) : h('span.muted', 'nije unesena'), can('ROLE_SP_U') && !sold ? h('button.sm', { style: { marginLeft: '8px' }, onclick: async () => {
+      const pr = input('price', p.price ?? '', { type: 'number', step: '0.01', inputmode: 'decimal' });
+      if (await modal('Cijena: ' + p.internal_code, [field('Nova cijena (KM)', pr)], [{ label: 'Odustani' }, { label: 'Sačuvaj', primary: true, onClick: () => PUT('/api/parts/' + id, { price: pr.value === '' ? null : Number(pr.value), currency_id: p.currency_id || 'BAM' }) }])) reload();
+    } }, '✏️') : null)],
     ['Lokacija', p.location_id ? h('a', { href: '#/magacin/lokacija/' + p.location_id }, p.location_label) : '—'],
     ['Vrsta', p.type_title + (p.group_title ? ' (' + p.group_title + ')' : '')],
     ['Vozilo', p.model_label],
@@ -215,9 +218,9 @@ route('/dijelovi/:id', async ({ id }, query, main) => {
 route('/dijelovi/:id/uredi', async ({ id }, query, main) => partForm(await GET('/api/parts/' + id), query, main));
 
 // ---------- Forma (novi / izmjena) ----------
-let vehiclesCache = null;
+let vehiclesCache = null, vehiclesAt = 0;
 async function vehicleItems() {
-  if (!vehiclesCache) vehiclesCache = (await GET('/api/vehicles?limit=500')).rows;
+  if (!vehiclesCache || Date.now() - vehiclesAt > 60000) { vehiclesCache = (await GET('/api/vehicles?limit=500')).rows; vehiclesAt = Date.now(); }
   return vehiclesCache.map(v => ({ value: v.id, label: `${v.internal_code} · ${v.model_label} ${v.model_year}`, sub: [E.fuel[v.fuel_type], v.engine_code, v.chassis_number].filter(Boolean).join(' · '), v }));
 }
 

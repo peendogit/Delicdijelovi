@@ -4,6 +4,7 @@ import { all, run } from './db.js';
 import { now } from './util.js';
 import { jobPublishNew, jobRemoveSold } from './olx.js';
 import { purgeDeletedFiles } from './routes/files.js';
+import { backupNow } from './backup.js';
 
 const JOBS = {
   OLX_INTEGRATION: () => jobPublishNew(200),
@@ -26,6 +27,8 @@ export function startScheduler() {
     if (minute === lastMinute) return;
     lastMinute = minute;
     const h = Number(t.slice(11, 13)), m = Number(t.slice(14, 16));
+    // automatska rezervna kopija baze svaki dan u 03:10
+    if (h === 3 && m === 10) backupNow().catch(e => console.error('Backup greška', e.message));
     for (const task of all('SELECT * FROM core_factory_task WHERE enabled=1')) {
       const fn = JOBS[task.task_id];
       if (!fn || !matches(task.hour, h) || !matches(task.minute, m)) continue;

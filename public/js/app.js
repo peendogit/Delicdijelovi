@@ -1,4 +1,4 @@
-import { h, $, clear, state, GET, POST, api, go, currentRoute, can, lookups, toast, route, modal, field, input, run } from './lib.js';
+import { h, $, clear, state, GET, POST, api, go, currentRoute, can, lookups, toast, route, modal, field, input, run, canScan, scanBarcode, setRenderer } from './lib.js';
 import './modules/dashboard.js';
 import './modules/parts.js';
 import './modules/vehicles.js';
@@ -19,6 +19,7 @@ const NAV = [
   ['/felne', '⚙️', 'Felne', () => can('ROLE_RIMS_R', 'ROLE_RIMS')],
   ['/magacin', '🏬', 'Magacin', () => can('ROLE_WHS_R', 'ROLE_WHS', 'ROLE_WHS_CLERK', 'ROLE_SP_LOC_U')],
   ['/premjestanje', '📦', 'Premještanje', () => can('ROLE_SP_LOC_U', 'ROLE_WHS_CLERK')],
+  ['/inventura', '✅', 'Inventura', () => can('ROLE_SP_LOC_U', 'ROLE_WHS_CLERK', 'ROLE_WHS_R')],
   ['/analitika', '📊', 'Analitika', () => can('ROLE_ANL')],
   ['sep'],
   ['/korisnici', '👥', 'Korisnici', () => can('ROLE_USR_R', 'ROLE_USR')],
@@ -67,7 +68,12 @@ function buildShell() {
   });
   sInp.addEventListener('blur', () => setTimeout(() => (res.style.display = 'none'), 150));
   const burger = h('button.burger', { onclick: () => side.classList.toggle('open') }, '☰');
-  const top = h('header.top', burger, h('a.logo', { href: '#/' }, h('b', 'D'), 'DELIĆ'), h('div.srch', sInp, res),
+  const scanBtn = canScan() ? h('button.burger', { style: { display: 'block' }, title: 'Skeniraj', onclick: async () => {
+    const c = await scanBarcode(); if (!c) return;
+    const r = await GET('/api/search?q=' + encodeURIComponent(c));
+    if (r.length) openRes(r[0]); else toast('Nije pronađeno: ' + c, 'err');
+  } }, '📷') : null;
+  const top = h('header.top', burger, h('a.logo', { href: '#/' }, h('b', 'D'), 'DELIĆ'), h('div.srch', sInp, res), scanBtn,
     h('span.me', { onclick: () => go('/profil') }, state.user.full_name));
   clear(app, top, h('div.layout', side, main), bnav);
   side.addEventListener('click', e => { if (e.target.closest('a')) side.classList.remove('open'); });
@@ -83,7 +89,7 @@ function renderNav() {
     h('a', { href: '#', onclick: e => { e.preventDefault(); shell.side.classList.toggle('open'); } }, h('span', '☰'), 'Meni'));
 }
 
-async function render() {
+async function render(opts = {}) {
   if (!state.user) return loginView();
   if (!shell) buildShell();
   renderNav();
@@ -91,10 +97,11 @@ async function render() {
   const main = shell.main;
   if (!m) { clear(main, h('div.empty', 'Stranica ne postoji')); return; }
   try {
-    clear(main, h('div.loading', 'Učitavam…'));
+    const y = window.scrollY;
+    if (!opts.keepScroll) clear(main, h('div.loading', 'Učitavam…'));
     const out = await m.r.render(m.params, m.query, main);
     if (out instanceof Node) clear(main, out);
-    window.scrollTo(0, 0);
+    window.scrollTo(0, opts.keepScroll ? y : 0);
   } catch (e) {
     clear(main, h('div.card', h('h2', 'Greška'), h('p', e.message)));
   }
@@ -106,7 +113,7 @@ route('/profil', () => {
   const op = input('old_password', '', { type: 'password' }), np = input('new_password', '', { type: 'password' });
   return h('div',
     h('div.head', h('h1', 'Moj profil')),
-    h('div.card', h('h2', u.full_name), h('p.muted', u.username), h('p', 'Prava: ', h('span.muted', u.auth.join(', ')))),
+    h('div.card', h('h2', u.full_name), h('p.muted', u.username), h('p', 'Profili: ', h('span.muted', (u.profiles || []).join(', ') || '—')), u.superadmin ? h('p', h('span.badge.green', 'Superadmin — sva prava')) : null),
     h('div.card', h('h2', 'Promjena lozinke'), h('div.grid', field('Stara lozinka', op), field('Nova lozinka', np)),
       h('div', { style: { marginTop: '10px' } }, h('button.primary', { onclick: () => run(() => POST('/api/auth/password', { old_password: op.value, new_password: np.value }), 'Lozinka promijenjena') }, 'Sačuvaj'))));
 });
@@ -117,7 +124,8 @@ async function boot() {
   shell = null;
 }
 
-window.addEventListener('hashchange', render);
+window.addEventListener('hashchange', () => render());
+setRenderer(render);
 await boot();
 if (state.user && location.hash === '#/prijava') location.hash = '#/';
 render();

@@ -137,7 +137,7 @@ route('/admin', async (params, query, main) => {
   const T = [
     ['spare_part_type', 'Vrste dijelova'], ['spare_part_group', 'Grupe'], ['car_make', 'Marke'], ['car_model', 'Modeli'],
     ['rims_type', 'Felne: vrste'], ['rims_diameter', 'Felne: prečnici'], ['rims_width', 'Felne: širine'], ['rims_bolt_pattern', 'Felne: šarafi'],
-    ['whs_ast_type', 'Tipovi lokacija'], ['config', 'Podešavanja'], ['tasks', 'Zadaci'], ['olx', 'OLX'],
+    ['whs_ast_type', 'Tipovi lokacija'], ['config', 'Podešavanja'], ['tasks', 'Zadaci'], ['olx', 'OLX'], ['backup', 'Rezervne kopije'],
   ].filter(([k]) => ENT[k] ? can(...ENT[k].auth) : can('ROLE_SUPERADMIN', 'ROLE_SP_ADM'));
   let tab = query.tab || T[0]?.[0];
   const box = h('div');
@@ -145,8 +145,17 @@ route('/admin', async (params, query, main) => {
   const show = () => {
     clear(tabBox, tabs(T, tab, k => { tab = k; history.replaceState(null, '', '#/admin?tab=' + k); show(); }));
     clear(box, loading());
-    if (ENT[tab]) entityView(tab, box); else if (tab === 'config') configView(box); else if (tab === 'tasks') tasksView(box); else if (tab === 'olx') olxView(box);
+    if (ENT[tab]) entityView(tab, box); else if (tab === 'config') configView(box); else if (tab === 'tasks') tasksView(box); else if (tab === 'olx') olxView(box); else if (tab === 'backup') backupView(box);
   };
   clear(main, h('div', h('div.head', h('h1', 'Administracija')), tabBox, box));
   show();
 });
+
+async function backupView(box) {
+  const list = await GET('/api/backups');
+  const mb = n => (n / 1048576).toFixed(1) + ' MB';
+  clear(box,
+    h('div.card', h('p', 'Kopija cijele baze pravi se automatski svaki dan u 03:10 (komprimovano, čuva se zadnjih 10 dana) u folderu data/backups na serveru. Slike su u data/uploads.'),
+      h('button.primary', { onclick: async () => { await run(() => POST('/api/backups'), 'Kopija napravljena'); backupView(box); } }, '💾 Napravi kopiju sada')),
+    h('div.card.p0', list.length ? h('table.tbl', h('tbody', list.map(b => h('tr', h('td', b.name), h('td.n', mb(b.size)), h('td', can('ROLE_SUPERADMIN') ? h('a', { href: '/api/backups/' + b.name }, '⬇ Preuzmi') : ''))))) : empty('Još nema kopija')));
+}

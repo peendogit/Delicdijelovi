@@ -1,6 +1,6 @@
 import { app } from '../router.js';
 import { all, get } from '../db.js';
-import { modelLabel, configStr } from '../util.js';
+import { modelLabel, configStr, configBool } from '../util.js';
 import { assetLabel } from '../whsutil.js';
 
 // Sve šifarnike u jednom pozivu (keširano u pregledaču)
@@ -21,6 +21,7 @@ app.get('/api/lookups', ctx => {
     warehouses: all('SELECT id, title FROM whs WHERE active=1 ORDER BY title'),
     currencies: all('SELECT code FROM core_currency WHERE active=1').map(r => r.code),
     currency: configStr('CURRENCY', 'BAM'),
+    olx_enabled: configBool('OLX_ENABLED'),
     default_location: (() => { const id = configStr('WAREHOUSE_DEFAULT_ASSET'); return id ? { id, label: assetLabel(id) } : null; })(),
     return_location: (() => { const id = configStr('WAREHOUSE_RETURN_ASSET'); return id ? { id, label: assetLabel(id) } : null; })(),
   };

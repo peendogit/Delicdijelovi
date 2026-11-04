@@ -1,6 +1,7 @@
 import { ROOT } from './env.js';
 
 import http from 'node:http';
+import zlib from 'node:zlib';
 import fs from 'node:fs';
 import path from 'node:path';
 import { HttpError } from './util.js';
@@ -39,9 +40,13 @@ function readBody(req, limit = 25e6) {
     req.on('error', reject);
   });
 }
-function send(res, status, data, headers = {}) {
-  const body = typeof data === 'string' || Buffer.isBuffer(data) ? data : JSON.stringify(data);
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers });
+const gz = req => /\bgzip\b/.test(req?.headers['accept-encoding'] || '');
+function send(res, status, data, headers = {}, req) {
+  let body = typeof data === 'string' || Buffer.isBuffer(data) ? data : JSON.stringify(data);
+  const h = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers };
+  // kompresija (manje mobilnih podataka) za veće odgovore
+  if (gz(req) && body.length > 1500) { body = zlib.gzipSync(body, { level: 6 }); h['Content-Encoding'] = 'gzip'; h.Vary = 'Accept-Encoding'; }
+  res.writeHead(status, h);
   res.end(body);
 }
 
@@ -51,7 +56,16 @@ function serveStatic(req, res, urlPath) {
   if (!file.startsWith(PUBLIC)) return send(res, 403, { error: 'Zabranjeno' });
   if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) file = path.join(PUBLIC, 'index.html');
   const ext = path.extname(file);
-  res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=300' });
+  // no-cache + Last-Modified: telefon uvijek dobije novu verziju poslije ažuriranja, a inače 304 (bez ponovnog skidanja)
+  const mtime = fs.statSync(file).mtime.toUTCString();
+  if (req.headers['if-modified-since'] === mtime) { res.writeHead(304); return res.end(); }
+  const h = { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Cache-Control': 'no-cache', 'Last-Modified': mtime };
+  if (gz(req) && ['.js', '.css', '.html', '.svg', '.json'].includes(ext)) {
+    h['Content-Encoding'] = 'gzip'; h.Vary = 'Accept-Encoding';
+    res.writeHead(200, h);
+    return fs.createReadStream(file).pipe(zlib.createGzip()).pipe(res);
+  }
+  res.writeHead(200, h);
   fs.createReadStream(file).pipe(res);
 }
 
@@ -77,11 +91,11 @@ const server = http.createServer(async (req, res) => {
     const ctx = { req, res, params: match.params, query, body: body || {}, user, url };
     const out = await match.route.handler(ctx);
     if (res.writableEnded || res.headersSent) return;
-    send(res, 200, out ?? { ok: true }, ctx.headers || {});
+    send(res, 200, out ?? { ok: true }, ctx.headers || {}, req);
   } catch (e) {
     const status = e.status || 500;
     if (status >= 500) console.error(new Date().toISOString(), req.method, req.url, e);
-    if (!res.headersSent) send(res, status, { error: e.message || 'Greška' });
+    if (!res.headersSent) send(res, status, { error: e.message || 'Greška' }, {}, req);
   }
 });
 

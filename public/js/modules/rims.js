@@ -1,4 +1,4 @@
-import { h, clear, route, GET, POST, PUT, DEL, qs, go, can, lookups, models, E, img, fmtDT, fmtMoney, field, input, textarea, select, check, combo, locationInput, formData, confirmBox, run, gallery, kv, badge, statusBadge, reqBadge, pager, tabs, loading, empty, setQuery, printLabels } from '../lib.js';
+import { h, clear, route, GET, POST, PUT, DEL, qs, go, can, lookups, models, E, img, fmtDT, fmtMoney, field, input, textarea, select, check, combo, locationInput, formData, confirmBox, run, gallery, kv, badge, statusBadge, reqBadge, pager, tabs, loading, empty, setQuery, printLabels , refresh } from '../lib.js';
 import { makeItems, modelItems, reqDialog, moveDialog, sellDialog, returnDialog } from './parts.js';
 
 const opt = list => list.map(x => ({ value: x.id, label: x.title }));
@@ -15,7 +15,7 @@ route('/felne', async (params, query, main) => {
       h('img.th', { src: img(r.image_id), loading: 'lazy' }),
       h('div.bd', h('div.t', r.title), h('div.s', h('span.code', r.internal_code), r.model_label ? h('span', r.model_label) : null, r.location_code ? h('b', '📍 ' + r.location_code) : null,
         r.damaged ? h('span', 'oštećene') : null, r.screw_included ? h('span', 'sa šarafima') : null)),
-      h('div.rt', r.price ? h('span.price', fmtMoney(r.price)) : h('span.muted', 'bez cijene'), r.status === 'SOLD' ? statusBadge('SOLD') : null))) : empty())),
+      h('div.rt', r.price ? h('span.price', fmtMoney(r.price)) : null, r.status === 'SOLD' ? statusBadge('SOLD') : null))) : empty())),
       pager(d.total, q.offset, 50, o => { q.offset = o; load(); }));
   };
   const set = (k, v) => { q[k] = v; q.offset = 0; load(); };
@@ -32,7 +32,7 @@ route('/felne', async (params, query, main) => {
 route('/felne/:id', async ({ id }, query) => {
   if (id === 'nova') return rimsForm(null, query);
   const r = await GET('/api/rims/' + id);
-  const reload = () => go('/felne/' + id + '?r=' + Date.now());
+  const reload = () => refresh();
   const sold = r.status === 'SOLD';
   const act = async fn => { if (await fn()) reload(); };
   let tab = 'loc'; const tb = h('div');

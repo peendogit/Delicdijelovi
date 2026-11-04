@@ -1,4 +1,4 @@
-import { h, clear, route, GET, POST, PUT, DEL, qs, go, can, lookups, models, E, img, fmtDT, fmtMoney, field, input, textarea, select, combo, formData, modal, confirmBox, toast, run, gallery, kv, badge, pager, tabs, loading, empty, setQuery } from '../lib.js';
+import { h, clear, route, GET, POST, PUT, DEL, qs, go, can, lookups, models, E, img, fmtDT, fmtMoney, field, input, textarea, select, combo, formData, modal, confirmBox, toast, run, gallery, kv, badge, pager, tabs, loading, empty, setQuery , refresh } from '../lib.js';
 import { makeItems, modelItems, partItem } from './parts.js';
 
 const vBadge = s => badge(E.vstatus[s] || s, s === 'COMPLETE' ? 'blue' : s === 'SOLD' ? 'red' : 'green');
@@ -32,7 +32,7 @@ route('/vozila', async (params, query, main) => {
 route('/vozila/:id', async ({ id }) => {
   if (id === 'novo') return vehicleForm(null);
   const v = await GET('/api/vehicles/' + id);
-  const reload = () => go('/vozila/' + id + '?r=' + Date.now());
+  const reload = () => refresh();
   let tab = 'UNSOLD';
   const partsBox = h('div');
   const loadParts = async () => {

@@ -15,12 +15,15 @@ Na Node.js 22.13+ ne treba nikakav paket. Na Node.js 20 pokreni jednom `npm inst
 | **Vozila (donori)** | unos/izmjena, slike, YouTube, felne na vozilu, svi dijelovi sa vozila, zarada po vozilu, prodaja cijelog vozila |
 | **Felne** | unos (F-šifre), filteri po vrsti/prečniku/širini/šarafima, premještanje, prodaja, povrat |
 | **Magacin** | magacini → prolazi → regali → police → palete/kutije; automatski kodovi (A/B/C, R1, P123, PL5, K45), dodatne oznake (P600B), merdevine/viljuškar, premještanje paleta/kutija, etikete |
-| **Premještanje** | ekran za magacionera: lokacija pa šifre dijelova jedna za drugom (Enter) |
+| **Premještanje** | ekran za magacionera: lokacija pa šifre dijelova jedna za drugom (Enter ili 📷 skeniranje kamerom) |
+| **Inventura** | izaberi policu/kutiju, skeniraj sve što je fizički na njoj → šta nedostaje, šta je višak (višak se jednim dugmetom upiše na tu lokaciju) |
 | **Analitika** | promet, prodato, uneseno, po radnicima (unos, slike, premještanja, prodaja, nalozi), najprodavanije vrste i marke, najisplativija vozila, stanje skladišta |
 | **Korisnici** | korisnici, lozinke, profili i prava (ista prava kao stari program: ROLE_SP_*, ROLE_VEH_*, ROLE_REQ_* …) |
 | **Administracija** | vrste dijelova (strane, pod-dijelovi, pravila), grupe, marke, modeli, šifarnici felni, tipovi lokacija, podešavanja (opisi oglasa…), pozadinski zadaci, OLX |
 
-Globalna pretraga gore: šifra dijela (9N32), felne (F189), vozila (440), broj naloga, lokacija (P123), kataloški broj.
+Globalna pretraga gore: šifra dijela (9N32), felne (F189), vozila (440), broj naloga, lokacija (P123), kataloški broj. Dugme 📷 skenira barkod etikete kamerom telefona (Chrome na Androidu).
+
+Ostalo: zvuk i vibracija kad stigne novi nalog (ekran Nalozi), brza izmjena cijene (✏️ pored cijene), automatska dnevna rezervna kopija baze (Administracija → Rezervne kopije), zaštita od pogađanja lozinke, kompresija podataka za brži rad na mobilnim podacima.
 
 ## Instalacija na VPS (Termius)
 
@@ -33,7 +36,7 @@ mkdir -p /var/www/delic-dijelovi && cd /var/www/delic-dijelovi
 
 # 3) Podešavanja
 cp .env.example .env
-nano .env          # postavi SESSION_SECRET na dugačak nasumičan tekst; PORT=3010
+sed -i "s/promijeni-me/$(openssl rand -hex 24)/" .env    # nasumičan tajni ključ; PORT=3020
 
 # 4) Baza iz backupa starog programa (fajl prebaci na server preko Termius SFTP)
 node --no-warnings tools/import.js /root/delic08072026.sql.gz
@@ -57,13 +60,20 @@ server {
     server_name dijelovi2.delicauto.com;
     client_max_body_size 30M;
     location / {
-        proxy_pass http://127.0.0.1:3010;
+        proxy_pass http://127.0.0.1:3020;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     }
 }
 ```
 Pa `certbot --nginx -d dijelovi2.delicauto.com`.
+
+## Automatsko ažuriranje sa GitHuba
+
+```bash
+(crontab -l 2>/dev/null; echo "* * * * * /var/www/delicdijelovi/deploy.sh >> /var/log/delicdijelovi-deploy.log 2>&1") | crontab -
+```
+Svaki minut provjeri GitHub; ako ima novog koda — povuče ga i restartuje program (`.env` i baza se ne diraju).
 
 ## Slike
 
@@ -95,9 +105,10 @@ Zaglavlje: `X-API-Key: nesto-tajno`.
 ## Rezervna kopija
 
 Cijela baza je jedan fajl: `data/delic.db` (+ slike u `data/uploads/`).
-```bash
-sqlite3 data/delic.db ".backup data/backup-$(date +%F).db"   # ili: cp data/delic.db ...  dok je pm2 zaustavljen
-```
+Program sam pravi komprimovanu kopiju svaki dan u 03:10 u `data/backups/` (čuva zadnjih 10) — vidi i preuzmi u **Administracija → Rezervne kopije**.
+Vraćanje kopije: `pm2 stop delic-dijelovi && gunzip -c data/backups/delic-DATUM.db.gz > data/delic.db && rm -f data/delic.db-wal data/delic.db-shm && pm2 start delic-dijelovi`.
+
+Ponovni uvoz starog backupa (`tools/import.js`) odbija da prepiše postojeću bazu bez `--force` — da se slučajno ne izgubi ono što je uneseno u novoj aplikaciji.
 
 ## Struktura
 

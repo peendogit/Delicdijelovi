@@ -127,3 +127,18 @@ app.put('/api/tasks/:id', ctx => {
   run('UPDATE core_factory_task SET enabled=? WHERE task_id=?', ctx.body.enabled ? 1 : 0, ctx.params.id);
   return { ok: true };
 });
+
+// Rezervne kopije baze
+import { backupNow, listBackups, BACKUP_DIR } from '../backup.js';
+import fs from 'node:fs';
+import pathMod from 'node:path';
+app.get('/api/backups', ctx => { need(ctx.user, 'ROLE_SUPERADMIN', 'ROLE_SP_ADM'); return listBackups(); });
+app.post('/api/backups', async ctx => { need(ctx.user, 'ROLE_SUPERADMIN', 'ROLE_SP_ADM'); return backupNow(); });
+app.get('/api/backups/:name', ctx => {
+  need(ctx.user, 'ROLE_SUPERADMIN');
+  const name = pathMod.basename(ctx.params.name);
+  const f = pathMod.join(BACKUP_DIR, name);
+  if (!/^delic-.*\.db\.gz$/.test(name) || !fs.existsSync(f)) throw notFound();
+  ctx.res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Disposition': `attachment; filename="${name}"`, 'Content-Length': fs.statSync(f).size });
+  fs.createReadStream(f).pipe(ctx.res);
+});

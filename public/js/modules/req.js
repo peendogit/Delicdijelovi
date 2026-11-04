@@ -1,4 +1,4 @@
-import { h, clear, route, GET, POST, PUT, DEL, qs, go, can, img, fmtDT, fmtMoney, field, input, textarea, check, modal, confirmBox, toast, run, kv, badge, reqBadge, pager, tabs, loading, empty, setQuery } from '../lib.js';
+import { h, clear, route, GET, POST, PUT, DEL, qs, go, can, img, beep, fmtDT, fmtMoney, field, input, textarea, check, modal, confirmBox, toast, run, kv, badge, reqBadge, pager, tabs, loading, empty, setQuery , refresh } from '../lib.js';
 
 async function closeDialog(r) {
   const sell = check('sell', false, 'Odmah evidentiraj prodaju');
@@ -28,10 +28,15 @@ function reqCard(r, reload) {
 route('/nalozi', async (params, query, main) => {
   const q = { status: 'ACTIVE', offset: 0, ...query }; q.offset = Number(q.offset) || 0;
   const res = h('div');
+  let seen = null;
   const load = async () => {
     setQuery(Object.fromEntries(Object.entries(q).filter(([k, v]) => v && !(k === 'status' && v === 'ACTIVE'))));
     clear(res, loading());
     const d = await GET('/api/req?' + qs({ ...q, limit: 100 }));
+    // zvuk + vibracija kad stigne novi nalog (za magacionera)
+    const newIds = d.rows.filter(r => r.status === 'NEW').map(r => r.id);
+    if (seen && newIds.some(id => !seen.has(id))) { beep(); navigator.vibrate?.([200, 100, 200]); toast('Stigao novi nalog!'); }
+    seen = new Set(newIds);
     clear(res, h('div.card.p0', h('div.list', d.rows.length ? d.rows.map(r => reqCard(r, load)) : empty('Nema naloga'))), pager(d.total, q.offset, 100, o => { q.offset = o; load(); }));
   };
   const s = input('q', q.q, { type: 'search', placeholder: 'Broj naloga, šifra dijela, napomena…' });
@@ -43,12 +48,12 @@ route('/nalozi', async (params, query, main) => {
   clear(main, h('div', h('div.head', h('h1', 'Nalozi'), h('button', { onclick: load }, '⟳ Osvježi')), h('div.card', h('div.row', h('div.grow', s), mine)), tabBox, res));
   load();
   // automatsko osvježavanje aktivnih naloga svakih 30 s
-  const iv = setInterval(() => { if (!document.body.contains(res)) return clearInterval(iv); if (q.status === 'ACTIVE' && !document.querySelector('.modal-bg')) load(); }, 30000);
+  const iv = setInterval(() => { if (!document.body.contains(res)) return clearInterval(iv); if (q.status === 'ACTIVE' && !document.querySelector('.modal-bg')) load(); }, 20000);
 });
 
 route('/nalozi/:id', async ({ id }) => {
   const r = await GET('/api/req/' + id);
-  const reload = () => go('/nalozi/' + id + '?r=' + Date.now());
+  const reload = () => refresh();
   const active = r.status === 'NEW' || r.status === 'PREPARED';
   return h('div',
     h('div.head', h('button.icon', { onclick: () => history.back() }, '←'), h('h1', 'Nalog #' + r.the_number), reqBadge(r.status)),

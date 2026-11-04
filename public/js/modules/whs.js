@@ -1,4 +1,4 @@
-import { h, clear, route, GET, POST, PUT, DEL, go, can, state, lookups, img, fmtDT, fmtMoney, field, input, select, check, modal, confirmBox, toast, run, badge, loading, empty, printLabels, tabs } from '../lib.js';
+import { h, clear, route, GET, POST, PUT, DEL, go, can, state, lookups, img, fmtDT, fmtMoney, field, input, select, check, modal, confirmBox, toast, run, badge, loading, empty, printLabels, tabs, scanBarcode, canScan , refresh } from '../lib.js';
 import { partItem } from './parts.js';
 
 let typesCache = null;
@@ -18,7 +18,7 @@ route('/magacin', async () => {
       can('ROLE_SP_LOC_U', 'ROLE_WHS_CLERK') ? h('button.primary', { onclick: () => go('/premjestanje') }, '📦 Premještanje') : null,
       can('ROLE_WHS_C') ? h('button', { onclick: async () => {
         const n = input('title', '');
-        if (await modal('Novi magacin', [field('Naziv', n)], [{ label: 'Odustani' }, { label: 'Sačuvaj', primary: true, onClick: () => POST('/api/whs', { title: n.value }) }])) go('/magacin?r=' + Date.now());
+        if (await modal('Novi magacin', [field('Naziv', n)], [{ label: 'Odustani' }, { label: 'Sačuvaj', primary: true, onClick: () => POST('/api/whs', { title: n.value }) }])) refresh();
       } }, '+ Magacin') : null),
     h('div.card', find, res),
     h('div.tiles', list.map(w => h('div.tile', { onclick: () => go('/magacin/m/' + w.id) }, h('b', w.title), h('small', `${w.parts.toLocaleString('bs-BA')} dijelova · ${w.assets} lok.`)))));
@@ -48,7 +48,7 @@ route('/magacin/m/:id', async ({ id }) => {
   const [ws, roots] = await Promise.all([GET('/api/whs'), GET('/api/assets?whs_id=' + id)]);
   const w = ws.find(x => x.id === id);
   if (!w) return h('div.empty', 'Magacin ne postoji');
-  const reload = () => go('/magacin/m/' + id + '?r=' + Date.now());
+  const reload = () => refresh();
   return h('div',
     h('div.head', h('button.icon', { onclick: () => go('/magacin') }, '←'), h('h1', w.title),
       can('ROLE_WHS_C', 'ROLE_WHS_U') ? h('button', { onclick: async () => { if (await addAssetDialog(id, null, typesCache.filter(t => t.base).map(t => t.id))) reload(); } }, '+ Lokacija') : null,
@@ -62,12 +62,13 @@ route('/magacin/lokacija/:id', async ({ id }, query) => {
   await types();
   const deep = query.deep === '1';
   const a = await GET('/api/assets/' + id + (deep ? '?deep=1' : ''));
-  const reload = (extra = '') => go('/magacin/lokacija/' + id + '?r=' + Date.now() + extra);
+  const reload = () => refresh();
   const tp = typesCache.find(t => t.id === a.ast_type_id);
   const pathIds = (a.path || '').split('/').filter(Boolean);
   const crumbs = h('div.tree-path', h('a', { href: '#/magacin/m/' + a.whs_id }, a.whs_title), a.label.split(' / ').slice(1).map((c, i) => [' › ', h('a', { href: '#/magacin/lokacija/' + pathIds[i] }, c)]));
   const actions = h('div.actions',
     can('ROLE_SP_LOC_U', 'ROLE_WHS_CLERK') && a.parts_allowed ? h('button.primary', { onclick: () => go('/premjestanje?loc=' + encodeURIComponent(a.code_extended)) }, '📦 Stavi dijelove ovdje') : null,
+    can('ROLE_SP_LOC_U', 'ROLE_WHS_CLERK', 'ROLE_WHS_R') && a.parts_allowed ? h('button', { onclick: () => go('/inventura?loc=' + encodeURIComponent(a.code_extended)) }, '✅ Inventura') : null,
     can('ROLE_WHS_C', 'ROLE_WHS_U') && tp?.children?.length ? h('button', { onclick: async () => { if (await addAssetDialog(a.whs_id, a, tp.children)) reload(); } }, '+ Pod-lokacija') : null,
     can('ROLE_WHS_U', 'ROLE_WHS_CLERK') && a.move_allowed ? h('button', { onclick: async () => {
       const c = input('parent_code', '', { placeholder: 'npr. P120', style: { textTransform: 'uppercase' } });
@@ -92,6 +93,12 @@ route('/magacin/lokacija/:id', async ({ id }, query) => {
     a.rims.length ? h('div.card', h('h2', 'Felne'), h('div.chips', a.rims.map(r => h('a.chip', { href: '#/felne/' + r.id }, r.internal_code)))) : null,
     a.history.length ? h('div.card', h('h2', 'Istorija premještanja'), h('table.tbl', h('tbody', a.history.map(x => h('tr', h('td', fmtDT(x.created_date)), h('td', '➡ ' + x.parent_code), h('td.muted', x.user_name)))))) : null);
 });
+
+// polje + dugme za skeniranje kamerom
+export function withScan(inp, after) {
+  if (!canScan()) return inp;
+  return h('div.row', { style: { flexWrap: 'nowrap' } }, h('div.grow', inp), h('button', { style: { minHeight: '54px', fontSize: '22px' }, onclick: async () => { const c = await scanBarcode(); if (c) { inp.value = c.toUpperCase(); after?.(); } } }, '📷'));
+}
 
 // ---------- Premještanje (magacioner) ----------
 route('/premjestanje', async (params, query) => {
@@ -145,6 +152,53 @@ route('/premjestanje', async (params, query) => {
   return h('div',
     h('div.head', h('h1', 'Premještanje dijelova')),
     h('div.card', h('p.muted', '1) Unesite lokaciju (policu/kutiju/paletu). 2) Unosite šifre dijelova jednu po jednu i pritisnite Enter — svaki dio se odmah premješta. Felne (F123) i kutije/palete (K12, PL3) takođe rade.'),
-      field('Lokacija', locI), locInfo, field('Šifra', codeI), h('button.primary', { onclick: move, style: { width: '100%', marginTop: '8px' } }, 'Premjesti')),
+      field('Lokacija', withScan(locI, checkLoc)), locInfo, field('Šifra', withScan(codeI, move)), h('button.primary', { onclick: move, style: { width: '100%', marginTop: '8px' } }, 'Premjesti')),
     h('div.card.p0', h('div', { style: { padding: '12px 14px 4px' } }, counter), log));
+});
+
+// ---------- Inventura police/kutije: skeniraj sve što fizički jeste na lokaciji ----------
+route('/inventura', async (params, query) => {
+  const locI = input('loc', query.loc || '', { placeholder: 'Lokacija: P123', class: 'big-input', autocapitalize: 'characters' });
+  const codeI = input('code', '', { placeholder: 'Šifra dijela', class: 'big-input', autocapitalize: 'characters' });
+  const box = h('div');
+  let asset = null, found = new Set(), extra = [];
+  const draw = () => {
+    if (!asset) return clear(box);
+    const exp = asset.parts;
+    const missing = exp.filter(p => !found.has(p.internal_code));
+    clear(box,
+      h('div.stats', h('div.stat', h('b', exp.length), h('span', 'Treba da je ovdje')), h('div.stat', h('b', exp.length - missing.length), h('span', 'Pronađeno')),
+        h('div.stat', h('b', missing.length), h('span', 'Nedostaje')), h('div.stat', h('b', extra.length), h('span', 'Višak (sa druge lokacije)'))),
+      extra.length ? h('div.card', h('h2', 'Višak — dijelovi koji su vođeni na drugoj lokaciji'), h('table.tbl', h('tbody', extra.map(x => h('tr', h('td', h('span.code', x.code)), h('td', x.title || x.msg), h('td.muted', x.from || ''))))),
+        extra.some(x => x.id) && can('ROLE_SP_LOC_U', 'ROLE_WHS_CLERK') ? h('button.primary', { style: { marginTop: '8px' }, onclick: async () => {
+          const r = await run(() => POST('/api/parts/move-bulk', { location_id: asset.id, codes: extra.filter(x => x.id).map(x => x.code) }), 'Višak upisan na ' + asset.code_extended);
+          extra = extra.filter(x => !x.id); await load(); } }, 'Upiši višak na ' + asset.code_extended) : null) : null,
+      h('div.card.p0', h('div', { style: { padding: '12px 14px 4px' } }, h('h2', 'Spisak sa lokacije')), h('div.list', exp.map(p => h('a.item' + (found.has(p.internal_code) ? '' : '.hl'), { href: '#/dijelovi/' + p.id },
+        h('div.bd', h('div.t', (found.has(p.internal_code) ? '✔ ' : '✖ ') + p.title), h('div.s', h('span.code', p.internal_code), p.catalog_number ? h('span', p.catalog_number) : null)))))),
+      missing.length && found.size ? h('p.muted', 'Žuto označeni dijelovi nisu skenirani — provjerite da li su negdje drugo ili prodati.') : null);
+  };
+  const load = async () => {
+    const c = locI.value.trim().toUpperCase(); if (!c) return;
+    const r = (await GET('/api/assets/find?code=' + encodeURIComponent(c))).filter(x => x.parts_allowed && x.code_extended.toUpperCase() === c);
+    if (r.length !== 1) { toast('Lokacija ne postoji', 'err'); return; }
+    asset = await GET('/api/assets/' + r[0].id);
+    draw(); codeI.focus();
+  };
+  const scan = async () => {
+    const c = codeI.value.trim().toUpperCase(); codeI.value = ''; if (!c || !asset) return;
+    if (asset.parts.some(p => p.internal_code === c)) { found.add(c); navigator.vibrate?.(40); }
+    else if (!extra.some(x => x.code === c)) {
+      try { const p = await GET('/api/parts/by-code/' + c); extra.push({ code: c, id: p.id, title: p.title, from: p.status === 'SOLD' ? 'PRODAT!' : p.location_label }); }
+      catch { extra.push({ code: c, msg: 'ne postoji u bazi' }); }
+      navigator.vibrate?.(300);
+    }
+    draw(); codeI.focus();
+  };
+  locI.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); found = new Set(); extra = []; load(); } });
+  codeI.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); scan(); } });
+  if (query.loc) setTimeout(load, 50);
+  return h('div', h('div.head', h('h1', 'Inventura lokacije')),
+    h('div.card', h('p.muted', 'Unesite policu/kutiju, pa skenirajte ili ukucajte šifre svih dijelova koji su FIZIČKI na njoj. Program pokazuje šta nedostaje i šta je višak.'),
+      field('Lokacija', withScan(locI, () => { found = new Set(); extra = []; load(); })), field('Šifra dijela', withScan(codeI, scan))),
+    box);
 });

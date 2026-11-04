@@ -29,7 +29,7 @@ app.get('/api/dashboard', ctx => {
       if (!a.id || !get('SELECT 1 x FROM whs_ast WHERE id=? AND active=1', a.id)) continue;
       const rows = all(`SELECT p.id, p.internal_code, p.title, p.price, p.modified_date d, ${IMG} FROM spare_part p WHERE p.location_id=? AND p.active=1 AND p.status='UNSOLD' ORDER BY p.modified_date DESC LIMIT 50`, a.id);
       const n = get("SELECT count(*) n FROM spare_part WHERE location_id=? AND active=1 AND status='UNSOLD'", a.id).n;
-      out.widgets.push({ key: 'asset', asset_id: a.id, title: (a.title || 'Lokacija') + ' — ' + assetLabel(a.id), count: n, rows });
+      out.widgets.push({ key: 'asset', asset_id: a.id, title: 'Na lokaciji ' + assetLabel(a.id), count: n, rows });
     }
   }
   out.counts = {
