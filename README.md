@@ -54,7 +54,14 @@ pm2 start ecosystem.config.cjs && pm2 save
 Stare lozinke radnika možda rade odmah (pokušava se isti SHA-256 kao stari program).
 Ako ne rade — postavi im novu u **Korisnici → korisnik → 🔑 Lozinka**.
 
-### Nginx (npr. novi poddomen `dijelovi2.delicauto.com`)
+### Instalacija na telefon (https)
+
+Aplikacija se može instalirati na telefon (ikona na početnom ekranu, otvara se bez Chromeove trake) — ali samo preko **https** adrese.
+1. U DNS-u domena dodaj **A zapis**: `dijelovi2` → `158.220.96.229`
+2. Na serveru: `bash tools/https-setup.sh dijelovi2.delicauto.com` (podesi Nginx + besplatni certifikat)
+3. Na telefonu u Chromeu otvori `https://dijelovi2.delicauto.com` → meni → **Instaliraj aplikaciju** (ili 📲 u meniju programa)
+
+### Nginx ručno (ako ne koristiš skriptu)
 
 ```nginx
 server {

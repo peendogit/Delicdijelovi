@@ -86,12 +86,18 @@ function renderNav() {
   const path = '/' + ((location.hash.slice(2) || '').split(/[/?]/)[0] || '');
   const items = NAV.filter(n => n[0] === 'sep' || n[3]());
   clear(shell.side, items.map(n => n[0] === 'sep' ? h('div.sep') : h('a' + (n[0] === path ? '.act' : ''), { href: '#' + n[0] }, h('span', n[1]), n[2])),
+    !isStandalone() ? h('a', { href: '#', onclick: e => { e.preventDefault(); installApp(); } }, h('span', '📲'), 'Instaliraj aplikaciju') : null,
     h('div.sep'), h('a', { href: '#', onclick: async e => { e.preventDefault(); await POST('/api/auth/logout'); state.user = null; loginView(); } }, h('span', '🚪'), 'Odjava'));
   clear(shell.bnav, BNAV.map(p => NAV.find(n => n[0] === p)).filter(n => n && n[3]()).map(n => h('a' + (n[0] === path ? '.act' : ''), { href: '#' + n[0] }, h('span', n[1]), n[2].split(' ')[0])),
     h('a', { href: '#', onclick: e => { e.preventDefault(); shell.side.classList.toggle('open'); } }, h('span', '☰'), 'Meni'));
 }
 
 async function render(opts = {}) {
+  if (!state.user && state.offline) {
+    return clear(app, h('div.login', h('div.card', h('div.brand', h('b', 'DELIĆ')), h('p', { style: { textAlign: 'center' } }, '📶 Nema interneta.'),
+      h('p.muted', { style: { textAlign: 'center' } }, 'Program radi sa podacima na serveru, pa treba veza. Provjerite WiFi ili mobilne podatke.'),
+      h('button.primary', { style: { width: '100%' }, onclick: async () => { await boot(); render(); } }, 'Pokušaj ponovo'))));
+  }
   if (!state.user) return loginView();
   if (!shell) buildShell();
   renderNav();
@@ -122,12 +128,31 @@ route('/profil', () => {
 });
 
 async function boot() {
-  try { state.user = await GET('/api/auth/me'); } catch { state.user = null; }
+  state.offline = false;
+  try { state.user = await GET('/api/auth/me'); } catch (e) { state.user = null; state.offline = !navigator.onLine || /interneta/.test(e.message); }
   if (state.user) await lookups();
   shell = null;
 }
 
 window.addEventListener('hashchange', () => render());
+
+// ---------- Instalacija na telefon (PWA) ----------
+let installEvt = null;
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; if (shell) renderNav(); });
+window.addEventListener('appinstalled', () => { installEvt = null; toast('Aplikacija je instalirana'); if (shell) renderNav(); });
+window.addEventListener('offline', () => toast('Nema interneta', 'err'));
+window.addEventListener('online', () => toast('Internet je ponovo tu'));
+export async function installApp() {
+  if (installEvt) { installEvt.prompt(); await installEvt.userChoice; installEvt = null; renderNav(); return; }
+  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  modal('Instalacija na telefon', [
+    !isSecureContext ? h('p', { style: { color: 'var(--red)' } }, 'Aplikacija se može instalirati samo preko https adrese (npr. https://dijelovi2.delicauto.com), ne preko IP adrese.') : null,
+    ios ? h('p', 'iPhone: u Safariju dodirnite dugme Dijeli (□↑) pa „Dodaj na početni ekran”.')
+      : h('p', 'Android: u Chromeu otvorite meni ⋮ pa „Instaliraj aplikaciju” (ili „Dodaj na početni ekran”).'),
+  ], [{ label: 'Zatvori' }]);
+}
 setRenderer(render);
 await boot();
 if (state.user && location.hash === '#/prijava') location.hash = '#/';
