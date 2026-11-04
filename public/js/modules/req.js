@@ -1,4 +1,4 @@
-import { h, clear, route, GET, POST, PUT, DEL, qs, go, can, img, beep, fmtDT, fmtMoney, field, input, textarea, check, modal, confirmBox, toast, run, kv, badge, reqBadge, pager, tabs, loading, empty, setQuery , refresh } from '../lib.js';
+import { h, clear, route, GET, POST, PUT, DEL, qs, go, can, img, beep, fmtDT, fmtMoney, field, input, textarea, check, modal, confirmBox, toast, run, kv, badge, reqBadge, pager, tabs, loading, empty, setQuery , refresh, toolbarN, fab } from '../lib.js';
 
 async function closeDialog(r) {
   const sell = check('sell', false, 'Odmah evidentiraj prodaju');
@@ -57,7 +57,7 @@ route('/nalozi/:id', async ({ id }) => {
   const active = r.status === 'NEW' || r.status === 'PREPARED';
   return h('div',
     h('div.head', h('button.icon', { onclick: () => history.back() }, '←'), h('h1', 'Nalog #' + r.the_number), reqBadge(r.status)),
-    h('div.card', h('div.actions',
+    toolbarN(2,
       active && r.status === 'NEW' && can('ROLE_REQ_ST', 'ROLE_WHS_CLERK') ? h('button', { onclick: () => run(() => POST(`/api/req/${id}/prepare`), 'Preuzeto').then(reload) }, '✋ Preuzmi') : null,
       active && can('ROLE_REQ_ST', 'ROLE_WHS_CLERK') ? h('button.primary', { onclick: async () => { if (await closeDialog(r)) reload(); } }, '✔ Donesen / zatvori') : null,
       !active && can('ROLE_REQ_ST') ? h('button', { onclick: () => run(() => POST(`/api/req/${id}/reopen`), 'Ponovo otvoren').then(reload) }, '↺ Ponovo otvori') : null,
@@ -65,7 +65,7 @@ route('/nalozi/:id', async ({ id }) => {
         const d = textarea('description', r.description), u = check('urgent', r.urgent, 'Hitno'), s = check('shipment', r.shipment, 'Za slanje');
         if (await modal('Izmjena naloga', [u, s, field('Napomena', d)], [{ label: 'Odustani' }, { label: 'Sačuvaj', primary: true, onClick: () => PUT('/api/req/' + id, { description: d.value, urgent: u.querySelector('input').checked, shipment: s.querySelector('input').checked }) }])) reload();
       } }, '✏️ Uredi') : null,
-      active && can('ROLE_REQ_U', 'ROLE_REQ_C') ? h('button.danger', { onclick: async () => { if (await confirmBox('Otkazati nalog #' + r.the_number + '?')) { await run(() => DEL('/api/req/' + id), 'Nalog otkazan'); go('/nalozi'); } } }, 'Otkaži') : null)),
+      active && can('ROLE_REQ_U', 'ROLE_REQ_C') ? h('button.danger', { onclick: async () => { if (await confirmBox('Otkazati nalog #' + r.the_number + '?')) { await run(() => DEL('/api/req/' + id), 'Nalog otkazan'); go('/nalozi'); } } }, '✖ Otkaži nalog') : null),
     h('div.card', h('div.row', { style: { alignItems: 'flex-start' } }, h('img', { src: img(r.image_id), style: { width: '120px', height: '120px', objectFit: 'cover', borderRadius: '10px' } }),
       h('div.grow', kv([
         ['Dio', r.part_id ? h('a', { href: '#/dijelovi/' + r.part_id }, h('span.code', r.part_code), ' ', r.part_title) : r.rims_id ? h('a', { href: '#/felne/' + r.rims_id }, 'Felne ' + r.rims_code) : null],

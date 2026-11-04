@@ -233,14 +233,15 @@ export function gallery(images, { type, objectId, canEdit, onChange }) {
   };
   fileInp.onchange = () => doUpload(fileInp.files);
   camInp.onchange = () => doUpload(camInp.files);
-  const tools = canEdit ? h('div.gal-tools',
-    h('button', { onclick: () => camInp.click() }, '📷 Slikaj'),
-    h('button', { onclick: () => fileInp.click() }, '🖼 Dodaj slike'),
-    images.length ? h('button', { onclick: async () => { if (!cur) return; await run(() => POST(`/api/files/${cur.id}/main`), 'Glavna slika postavljena'); onChange?.(); } }, '★ Glavna') : null,
-    images.length ? h('button.danger', { onclick: async () => { if (!cur || !(await confirmBox('Obrisati ovu sliku?'))) return; await run(() => DEL(`/api/files/${cur.id}`), 'Slika obrisana'); onChange?.(); } }, '🗑') : null,
-    prog, fileInp, camInp) : null;
+  // dugmad preko slike: kamera i dodavanje dolje desno, glavna/obriši gore desno
+  const ov = canEdit ? [
+    h('div.gal-ov.br', h('button.round.big', { title: 'Slikaj', onclick: () => camInp.click() }, '📷'), h('button.round', { title: 'Dodaj slike iz galerije', onclick: () => fileInp.click() }, '🖼')),
+    images.length ? h('div.gal-ov.tr',
+      h('button.round.sm', { title: 'Postavi kao glavnu', onclick: async () => { if (!cur) return; await run(() => POST(`/api/files/${cur.id}/main`), 'Glavna slika postavljena'); onChange?.(); } }, '★'),
+      h('button.round.sm', { title: 'Obriši sliku', onclick: async () => { if (!cur || !(await confirmBox('Obrisati ovu sliku?'))) return; await run(() => DEL(`/api/files/${cur.id}`), 'Slika obrisana'); onChange?.(); } }, '🗑')) : null,
+    h('div.gal-ov.bl', prog), fileInp, camInp] : null;
   show(images[0]);
-  return h('div.gallery', main, images.length > 1 ? strip : null, tools);
+  return h('div.gallery', h('div.gal-wrap', main, ov), images.length > 1 ? strip : null, images.length ? h('div.muted', images.length + (images.length % 10 === 1 && images.length % 100 !== 11 ? ' slika' : [2, 3, 4].includes(images.length % 10) && ![12, 13, 14].includes(images.length % 100) ? ' slike' : ' slika')) : null);
 }
 
 // ---------- Ruter ----------
@@ -339,4 +340,36 @@ export async function scanBarcode() {
 // kratki zvuk (novi nalog i sl.)
 export function beep() {
   try { const c = new AudioContext(); const o = c.createOscillator(); const g = c.createGain(); o.frequency.value = 880; o.connect(g); g.connect(c.destination); g.gain.value = 0.15; o.start(); o.stop(c.currentTime + 0.25); } catch {}
+}
+
+// ---------- Traka radnji: glavne radnje kao velika dugmad, ostalo u "Više" ----------
+// Na telefonu se traka zakači za dno ekrana (iznad donjeg menija) — pod palcem.
+function tileize(b) {
+  const t = b.textContent.trim();
+  const m = t.match(/^(\S+)\s+(.+)$/);
+  if (m && !/[A-Za-zČĆŽŠĐčćžšđ0-9]/.test(m[1])) clear(b, h('span.ic', m[1]), h('span.lb', m[2]));
+  else if (!/[A-Za-z]/.test(t)) clear(b, h('span.ic', t), h('span.lb', 'Obriši'));
+  else clear(b, h('span.ic', '•'), h('span.lb', t));
+  b.classList.add('tile-btn');
+  return b;
+}
+export function toolbar(primary, more = []) {
+  primary = primary.filter(Boolean).map(tileize);
+  more = more.filter(Boolean);
+  const moreBtn = more.length ? tileize(h('button', { onclick: () => {
+    const sheet = h('div.modal-bg.sheet', { onclick: e => { if (e.target === sheet) sheet.remove(); } },
+      h('div.modal', h('div.modal-head', h('h3', 'Više radnji'), h('button.icon', { onclick: () => sheet.remove() }, '✕')),
+        h('div.sheet-list', more)));
+    sheet.addEventListener('click', e => { if (e.target.closest('.sheet-list button')) sheet.remove(); }, true);
+    document.body.append(sheet);
+  } }, '⋯ Više')) : null;
+  return h('div.toolbar', primary, moreBtn);
+}
+// Plutajuće dugme za novi unos (na telefonu krug dolje desno, na računaru obično dugme)
+export const fab = (label, onclick) => h('button.primary.fab', { onclick }, h('span.fab-plus', '+'), h('span.fab-lb', label));
+// toolbarN(3, dugme1, dugme2, …): prva 3 (koja postoje) su glavna, ostala idu u "Više"; narandžasto dugme ide prvo
+export function toolbarN(k, ...btns) {
+  const b = btns.filter(Boolean);
+  const prim = b.slice(0, k).sort((x, y) => y.classList.contains('primary') - x.classList.contains('primary'));
+  return toolbar(prim, b.slice(k));
 }

@@ -1,4 +1,4 @@
-import { h, clear, route, GET, POST, PUT, DEL, go, can, state, lookups, img, fmtDT, fmtMoney, field, input, select, check, modal, confirmBox, toast, run, badge, loading, empty, printLabels, tabs, scanBarcode, canScan , refresh } from '../lib.js';
+import { h, clear, route, GET, POST, PUT, DEL, go, can, state, lookups, img, fmtDT, fmtMoney, field, input, select, check, modal, confirmBox, toast, run, badge, loading, empty, printLabels, tabs, scanBarcode, canScan , refresh, toolbarN } from '../lib.js';
 import { partItem } from './parts.js';
 
 let typesCache = null;
@@ -66,7 +66,7 @@ route('/magacin/lokacija/:id', async ({ id }, query) => {
   const tp = typesCache.find(t => t.id === a.ast_type_id);
   const pathIds = (a.path || '').split('/').filter(Boolean);
   const crumbs = h('div.tree-path', h('a', { href: '#/magacin/m/' + a.whs_id }, a.whs_title), a.label.split(' / ').slice(1).map((c, i) => [' › ', h('a', { href: '#/magacin/lokacija/' + pathIds[i] }, c)]));
-  const actions = h('div.actions',
+  const actions = toolbarN(3,
     can('ROLE_SP_LOC_U', 'ROLE_WHS_CLERK') && a.parts_allowed ? h('button.primary', { onclick: () => go('/premjestanje?loc=' + encodeURIComponent(a.code_extended)) }, '📦 Stavi dijelove ovdje') : null,
     can('ROLE_SP_LOC_U', 'ROLE_WHS_CLERK', 'ROLE_WHS_R') && a.parts_allowed ? h('button', { onclick: () => go('/inventura?loc=' + encodeURIComponent(a.code_extended)) }, '✅ Inventura') : null,
     can('ROLE_WHS_C', 'ROLE_WHS_U') && tp?.children?.length ? h('button', { onclick: async () => { if (await addAssetDialog(a.whs_id, a, tp.children)) reload(); } }, '+ Pod-lokacija') : null,
@@ -85,7 +85,7 @@ route('/magacin/lokacija/:id', async ({ id }, query) => {
   return h('div',
     h('div.head', h('button.icon', { onclick: () => history.back() }, '←'), h('h1', a.code_extended + ' · ' + a.type_title)),
     crumbs, flags ? h('p.muted', flags) : null,
-    h('div.card', actions),
+    actions,
     a.children.length ? h('div.card', h('h2', 'Pod-lokacije (' + a.children.length + ')'), h('div.tiles', a.children.map(tile))) : null,
     h('div.card.p0', h('div.row', { style: { padding: '12px 14px 4px' } }, h('h2.grow', { style: { margin: 0 } }, `Dijelovi (${a.parts.length})`),
       a.children.length ? h('label.check', h('input', { type: 'checkbox', checked: deep, onchange: e => go('/magacin/lokacija/' + id + (e.target.checked ? '?deep=1' : '')) }), 'uključi pod-lokacije') : null),

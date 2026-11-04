@@ -1,4 +1,4 @@
-import { h, clear, route, GET, POST, PUT, DEL, qs, go, can, lookups, models, E, img, fmtDT, fmtMoney, field, input, textarea, select, check, combo, locationInput, formData, confirmBox, run, gallery, kv, badge, statusBadge, reqBadge, pager, tabs, loading, empty, setQuery, printLabels , refresh } from '../lib.js';
+import { h, clear, route, GET, POST, PUT, DEL, qs, go, can, lookups, models, E, img, fmtDT, fmtMoney, field, input, textarea, select, check, combo, locationInput, formData, confirmBox, run, gallery, kv, badge, statusBadge, reqBadge, pager, tabs, loading, empty, setQuery, printLabels , refresh, toolbarN, fab } from '../lib.js';
 import { makeItems, modelItems, reqDialog, moveDialog, sellDialog, returnDialog } from './parts.js';
 
 const opt = list => list.map(x => ({ value: x.id, label: x.title }));
@@ -23,7 +23,7 @@ route('/felne', async (params, query, main) => {
   const s = input('q', q.q, { type: 'search', placeholder: 'Šifra (F123) ili napomena' }); let t; s.oninput = () => { clearTimeout(t); t = setTimeout(() => set('q', s.value.trim()), 400); };
   const mk = combo('car_make_id', q.car_make_id, makeItems(L), { placeholder: 'Marka' }); mk.addEventListener('change', () => set('car_make_id', mk.value));
   clear(main, h('div',
-    h('div.head', h('h1', 'Felne'), can('ROLE_RIMS_C') ? h('button.primary', { onclick: () => go('/felne/nova') }, '+ Nove felne') : null),
+    h('div.head', h('h1', 'Felne'), can('ROLE_RIMS_C') ? fab('Nove felne', () => go('/felne/nova')) : null),
     h('div.card', h('div.filters', { style: { marginTop: 0 } }, s, sel('status', { UNSOLD: 'Na stanju', SOLD: 'Prodate', ALL: 'Sve' }, 'Status'), sel('type_id', opt(L.rims_types), 'Vrsta'),
       sel('diameter_id', opt(L.rims_diameters), 'Prečnik'), sel('width_id', opt(L.rims_widths), 'Širina'), sel('pattern_id', opt(L.rims_patterns), 'Raspon šarafa'), mk)), res));
   load();
@@ -44,14 +44,14 @@ route('/felne/:id', async ({ id }, query) => {
   renderTab();
   return h('div',
     h('div.head', h('button.icon', { onclick: () => history.back() }, '←'), h('h1', r.internal_code + ' · ' + r.title)),
-    h('div.card', h('div.actions',
+    toolbarN(4,
       can('ROLE_RIMS_U') ? h('button', { onclick: () => go(`/felne/${id}/uredi`) }, '✏️ Uredi') : null,
       !sold && can('ROLE_RIMS_U', 'ROLE_WHS_CLERK', 'ROLE_SP_LOC_U') ? h('button', { onclick: () => act(() => moveDialog('rims', id)) }, '📍 Premjesti') : null,
       !sold && can('ROLE_REQ_C') ? h('button', { onclick: () => act(() => reqDialog([], [id])) }, '📋 Nalog') : null,
       !sold && can('ROLE_SP_SALE', 'ROLE_RIMS_U') ? h('button.primary', { onclick: () => act(() => sellDialog('rims', r)) }, '💰 Prodaj') : null,
-      sold && can('ROLE_SP_SALE', 'ROLE_RIMS_U') ? h('button', { onclick: () => act(() => returnDialog('rims', r)) }, '↩ Povrat') : null,
-      h('button', { onclick: () => printLabels([{ code: r.internal_code, title: r.title, sub: r.location_code }]) }, '🏷 Etiketa'),
-      can('ROLE_RIMS_U', 'ROLE_RIMS_D') ? h('button.danger', { onclick: async () => { if (await confirmBox('Obrisati felne ' + r.internal_code + '?')) { await run(() => DEL('/api/rims/' + id), 'Obrisano'); go('/felne'); } } }, '🗑') : null)),
+      sold && can('ROLE_SP_SALE', 'ROLE_RIMS_U') ? h('button.primary', { onclick: () => act(() => returnDialog('rims', r)) }, '↩ Povrat') : null,
+      h('button', { onclick: () => printLabels([{ code: r.internal_code, title: r.title, sub: r.location_code }]) }, '🏷 Štampaj etiketu'),
+      can('ROLE_RIMS_U', 'ROLE_RIMS_D') ? h('button.danger', { onclick: async () => { if (await confirmBox('Obrisati felne ' + r.internal_code + '?')) { await run(() => DEL('/api/rims/' + id), 'Obrisano'); go('/felne'); } } }, '🗑 Obriši felne') : null),
     h('div.grid2', h('div.card', gallery(r.images, { type: 'RIMS', objectId: id, canEdit: can('ROLE_RIMS_U', 'ROLE_RIMS_C', 'ROLE_USR_LIB_UP'), onChange: reload })),
       h('div.card', kv([['Šifra', h('span.code', r.internal_code)], ['Status', statusBadge(r.status)], ['Cijena', r.price ? h('span.price', fmtMoney(r.price, r.currency_id)) : 'nije unesena'],
         ['Lokacija', r.location_id ? h('a', { href: '#/magacin/lokacija/' + r.location_id }, r.location_label) : '—'],

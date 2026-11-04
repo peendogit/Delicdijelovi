@@ -1,4 +1,4 @@
-import { h, clear, route, GET, POST, PUT, DEL, qs, go, can, lookups, models, E, img, fmtDT, fmtMoney, field, input, textarea, select, combo, formData, modal, confirmBox, toast, run, gallery, kv, badge, pager, tabs, loading, empty, setQuery , refresh } from '../lib.js';
+import { h, clear, route, GET, POST, PUT, DEL, qs, go, can, lookups, models, E, img, fmtDT, fmtMoney, field, input, textarea, select, combo, formData, modal, confirmBox, toast, run, gallery, kv, badge, pager, tabs, loading, empty, setQuery , refresh, toolbarN, fab } from '../lib.js';
 import { makeItems, modelItems, partItem } from './parts.js';
 
 const vBadge = s => badge(E.vstatus[s] || s, s === 'COMPLETE' ? 'blue' : s === 'SOLD' ? 'red' : 'green');
@@ -24,7 +24,7 @@ route('/vozila', async (params, query, main) => {
   const st = select('status', q.status, E.vstatus, { placeholder: 'Svi statusi' }); st.onchange = () => set('status', st.value);
   const mk = combo('make_id', q.make_id, makeItems(L), { placeholder: 'Marka' }); mk.addEventListener('change', () => set('make_id', mk.value));
   clear(main, h('div',
-    h('div.head', h('h1', 'Vozila (donori)'), can('ROLE_VEH_C') ? h('button.primary', { onclick: () => go('/vozila/novo') }, '+ Novo vozilo') : null),
+    h('div.head', h('h1', 'Vozila (donori)'), can('ROLE_VEH_C') ? fab('Novo vozilo', () => go('/vozila/novo')) : null),
     h('div.card', h('div.filters', { style: { marginTop: 0 } }, s, mk, st)), res));
   load();
 });
@@ -56,16 +56,16 @@ route('/vozila/:id', async ({ id }) => {
   ]);
   return h('div',
     h('div.head', h('button.icon', { onclick: () => history.back() }, '←'), h('h1', `${v.internal_code} · ${v.model_label} ${v.model_year}`)),
-    h('div.card', h('div.actions',
-      can('ROLE_SP_C') ? h('button.primary', { onclick: () => go('/dijelovi/novi?vehicle_id=' + id) }, '+ Dio sa ovog vozila') : null,
-      can('ROLE_RIMS_C') ? h('button', { onclick: () => go('/felne/nova?vehicle_id=' + id) }, '+ Felne sa vozila') : null,
+    toolbarN(3,
+      can('ROLE_SP_C') ? h('button.primary', { onclick: () => go('/dijelovi/novi?vehicle_id=' + id) }, '🔧 Novi dio sa vozila') : null,
+      can('ROLE_RIMS_C') ? h('button', { onclick: () => go('/felne/nova?vehicle_id=' + id) }, '⚙️ Felne sa vozila') : null,
       can('ROLE_VEH_U') ? h('button', { onclick: () => go(`/vozila/${id}/uredi`) }, '✏️ Uredi') : null,
       can('ROLE_VEH_U') && v.status === 'COMPLETE' ? h('button', { onclick: async () => {
         const pr = input('price', v.price, { type: 'number' }); const note = textarea('note', '');
         if (await modal('Prodaja vozila', [field('Cijena', pr), field('Napomena', note)], [{ label: 'Odustani' }, { label: 'Prodaj', primary: true, onClick: () => POST(`/api/vehicles/${id}/sell`, { price: pr.value, note: note.value }) }])) reload();
       } }, '💰 Prodaj vozilo') : null,
       h('button', { onclick: async () => { const d = await GET(`/api/olx/describe/vehicle/${id}`); const ta = textarea('t', d.html.replace(/<[^>]+>/g, '').replace(/\n{3,}/g, '\n\n').trim(), { rows: 12 }); modal('Tekst oglasa', [field('Naslov', input('t', d.title)), ta], [{ label: 'Zatvori' }, { label: 'Kopiraj', primary: true, onClick: async () => { await navigator.clipboard.writeText(ta.value); toast('Kopirano'); return false; } }]); } }, '📝 Tekst oglasa'),
-      can('ROLE_VEH_D') ? h('button.danger', { onclick: async () => { if (await confirmBox('Obrisati vozilo ' + v.internal_code + '?')) { await run(() => DEL('/api/vehicles/' + id), 'Obrisano'); go('/vozila'); } } }, '🗑') : null)),
+      can('ROLE_VEH_D') ? h('button.danger', { onclick: async () => { if (await confirmBox('Obrisati vozilo ' + v.internal_code + '?')) { await run(() => DEL('/api/vehicles/' + id), 'Obrisano'); go('/vozila'); } } }, '🗑 Obriši vozilo') : null),
     h('div.stats',
       h('div.stat', h('b', v.stats.total || 0), h('span', 'Dijelova ukupno')), h('div.stat', h('b', v.stats.unsold || 0), h('span', 'Na stanju')),
       h('div.stat', h('b', v.stats.sold || 0), h('span', 'Prodato')), h('div.stat', h('b', fmtMoney(v.stats.earned || 0)), h('span', 'Zarađeno od dijelova')),
