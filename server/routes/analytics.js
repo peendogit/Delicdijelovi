@@ -58,3 +58,129 @@ app.get('/api/analytics', ctx => {
 
   return { from, to, summary, series: Object.values(series).sort((a, b) => a.d.localeCompare(b.d)), users: Object.values(users).sort((a, b) => b.added + b.sold - a.added - a.sold), top_types, top_makes, top_vehicles, stock, stock_groups };
 });
+
+// ---------------------------------------------------------------------------
+// Dodatna analitika
+// ---------------------------------------------------------------------------
+const prevPeriod = (from, to) => {
+  const d1 = new Date(from + 'T00:00:00Z'), d2 = new Date(to + 'T00:00:00Z');
+  const days = Math.round((d2 - d1) / 864e5) + 1;
+  const pTo = new Date(d1 - 864e5), pFrom = new Date(pTo - (days - 1) * 864e5);
+  return [pFrom.toISOString().slice(0, 10), pTo.toISOString().slice(0, 10)];
+};
+function kpis(from, to) {
+  const P = [from, to]; const R = `created_date >= ? AND created_date < date(?, '+1 day')`;
+  return {
+    revenue: get(`SELECT coalesce(sum(CASE WHEN status='SOLD' THEN the_price ELSE -the_price END),0) s FROM spare_part_sale_history WHERE ${R}`, ...P).s,
+    sold: get(`SELECT count(*) n FROM spare_part_sale_history WHERE status='SOLD' AND ${R}`, ...P).n,
+    added: get(`SELECT count(*) n FROM spare_part WHERE ${R}`, ...P).n,
+    avg_price: get(`SELECT avg(the_price) a FROM spare_part_sale_history WHERE status='SOLD' AND the_price>0 AND ${R}`, ...P).a,
+    returned: get(`SELECT count(*) n FROM spare_part_sale_history WHERE status='UNSOLD' AND ${R}`, ...P).n,
+  };
+}
+
+// Poređenje sa prethodnim periodom + kad se prodaje (dan u sedmici × sat)
+app.get('/api/analytics/overview', ctx => {
+  need(ctx.user, 'ROLE_ANL');
+  const to = ctx.query.to || today(), from = ctx.query.from || to.slice(0, 8) + '01';
+  const [pf, pt] = prevPeriod(from, to);
+  const heat = all(`SELECT CAST(strftime('%w', created_date) AS INTEGER) dow, CAST(strftime('%H', created_date) AS INTEGER) hr, count(*) n, sum(the_price) s
+    FROM spare_part_sale_history WHERE status='SOLD' AND created_date >= ? AND created_date < date(?, '+1 day') GROUP BY dow, hr`, from, to);
+  const yoyFrom = String(Number(from.slice(0, 4)) - 1) + from.slice(4), yoyTo = String(Number(to.slice(0, 4)) - 1) + to.slice(4);
+  const priceBands = all(`SELECT CASE WHEN the_price<20 THEN '< 20' WHEN the_price<50 THEN '20–49' WHEN the_price<100 THEN '50–99' WHEN the_price<200 THEN '100–199'
+      WHEN the_price<500 THEN '200–499' WHEN the_price<1000 THEN '500–999' ELSE '1000+' END title, count(*) n, sum(the_price) revenue, min(the_price) mn
+    FROM spare_part_sale_history WHERE status='SOLD' AND the_price>0 AND created_date >= ? AND created_date < date(?, '+1 day') GROUP BY title ORDER BY mn`, from, to);
+  // popust: prodajna cijena vs. cijena na dijelu
+  const disc = get(`SELECT count(*) n, avg(h.the_price / p.price) r FROM spare_part_sale_history h JOIN spare_part p ON p.id=h.part_id
+    WHERE h.status='SOLD' AND p.price>0 AND h.the_price>0 AND h.created_date >= ? AND h.created_date < date(?, '+1 day')`, from, to);
+  const zero = get(`SELECT count(*) n FROM spare_part_sale_history WHERE status='SOLD' AND the_price=0 AND created_date >= ? AND created_date < date(?, '+1 day')`, from, to).n;
+  return { from, to, cur: kpis(from, to), prev: { from: pf, to: pt, ...kpis(pf, pt) }, yoy: { from: yoyFrom, to: yoyTo, ...kpis(yoyFrom, yoyTo) }, heat, priceBands, discount: disc, zero_price_sales: zero };
+});
+
+// Zaliha: starost robe, ležeća roba, grupe, magacini, koliko se od unesenog prodalo
+app.get('/api/analytics/stock', ctx => {
+  need(ctx.user, 'ROLE_ANL');
+  const age = `julianday('now') - julianday(p.created_date)`;
+  const buckets = all(`SELECT CASE WHEN ${age} < 90 THEN 1 WHEN ${age} < 180 THEN 2 WHEN ${age} < 365 THEN 3 WHEN ${age} < 730 THEN 4 WHEN ${age} < 1095 THEN 5 ELSE 6 END b,
+      count(*) n, coalesce(sum(p.price),0) value, sum(p.price>0) priced FROM spare_part p WHERE p.active=1 AND p.status='UNSOLD' GROUP BY b ORDER BY b`);
+  const L = { 1: 'do 3 mjeseca', 2: '3–6 mjeseci', 3: '6–12 mjeseci', 4: '1–2 godine', 5: '2–3 godine', 6: 'preko 3 godine' };
+  for (const b of buckets) b.title = L[b.b];
+  const groups = all(`SELECT coalesce(g.title,'—') title, count(*) n, coalesce(sum(p.price),0) value, round(avg(${age})) avg_days,
+      sum(${age} > 730) old FROM spare_part p LEFT JOIN spare_part_type t ON t.id=p.type_id LEFT JOIN spare_part_group g ON g.id=t.group_id
+    WHERE p.active=1 AND p.status='UNSOLD' GROUP BY g.id ORDER BY n DESC`);
+  const oldest_valuable = all(`SELECT p.id, p.internal_code, p.title, p.price, p.created_date, l.code_extended location_code FROM spare_part p LEFT JOIN whs_ast l ON l.id=p.location_id
+    WHERE p.active=1 AND p.status='UNSOLD' AND p.price >= 100 ORDER BY p.created_date LIMIT 40`);
+  const cohorts = all(`SELECT strftime('%Y', created_date) y, count(*) n, sum(status='SOLD') sold FROM spare_part WHERE active=1 OR status='SOLD' GROUP BY y ORDER BY y`);
+  const warehouses = all(`SELECT w.title, count(p.id) n, coalesce(sum(p.price),0) value FROM spare_part p JOIN whs_ast a ON a.id=p.location_id JOIN whs w ON w.id=a.whs_id
+    WHERE p.active=1 AND p.status='UNSOLD' GROUP BY w.id ORDER BY n DESC`);
+  const no_loc = get("SELECT count(*) n FROM spare_part WHERE active=1 AND status='UNSOLD' AND location_id IS NULL").n;
+  const empty_locations = get(`SELECT count(*) n FROM whs_ast a JOIN whs_ast_type t ON t.id=a.ast_type_id WHERE a.active=1 AND t.parts_allowed=1
+    AND NOT EXISTS (SELECT 1 FROM spare_part p WHERE p.location_id=a.id AND p.active=1 AND p.status='UNSOLD') AND NOT EXISTS (SELECT 1 FROM whs_ast c WHERE c.parent_id=a.id AND c.active=1)`).n;
+  return { buckets, groups, oldest_valuable, cohorts, warehouses, no_loc, empty_locations };
+});
+
+// Potražnja: šta se prodaje a nema na stanju, šta stoji previše, brzina prodaje, koje modele kupovati
+app.get('/api/analytics/demand', ctx => {
+  need(ctx.user, 'ROLE_ANL');
+  const months = Math.min(Math.max(Number(ctx.query.months) || 12, 1), 60);
+  const since = `date('now', '-${months} months')`;
+  const types = all(`SELECT t.id, t.title, coalesce(g.title,'') grp,
+      (SELECT count(*) FROM spare_part_sale_history h JOIN spare_part p ON p.id=h.part_id WHERE p.type_id=t.id AND h.status='SOLD' AND h.created_date >= ${since}) sold,
+      (SELECT coalesce(sum(h.the_price),0) FROM spare_part_sale_history h JOIN spare_part p ON p.id=h.part_id WHERE p.type_id=t.id AND h.status='SOLD' AND h.created_date >= ${since}) revenue,
+      (SELECT round(avg(julianday(h.created_date) - julianday(p.created_date))) FROM spare_part_sale_history h JOIN spare_part p ON p.id=h.part_id WHERE p.type_id=t.id AND h.status='SOLD' AND h.created_date >= ${since}) days_to_sell,
+      (SELECT count(*) FROM spare_part p WHERE p.type_id=t.id AND p.active=1 AND p.status='UNSOLD') stock
+    FROM spare_part_type t LEFT JOIN spare_part_group g ON g.id=t.group_id WHERE t.active=1`).filter(r => r.sold || r.stock);
+  for (const r of types) r.months_of_stock = r.sold ? Math.round((r.stock / (r.sold / months)) * 10) / 10 : null;
+  const shortage = types.filter(r => r.sold >= 3 && r.months_of_stock !== null && r.months_of_stock < 12).sort((a, b) => b.revenue - a.revenue).slice(0, 40);
+  const overstock = types.filter(r => r.stock >= 30 && (r.months_of_stock === null || r.months_of_stock > 120)).sort((a, b) => b.stock - a.stock).slice(0, 40);
+  const fastest = types.filter(r => r.sold >= 5).sort((a, b) => a.days_to_sell - b.days_to_sell).slice(0, 20);
+  const models = all(`SELECT p.model_id, count(*) sold, sum(h.the_price) revenue, round(avg(h.the_price)) avg_price,
+      (SELECT count(*) FROM spare_part s WHERE s.model_id=p.model_id AND s.active=1 AND s.status='UNSOLD') stock
+    FROM spare_part_sale_history h JOIN spare_part p ON p.id=h.part_id WHERE h.status='SOLD' AND h.created_date >= ${since} GROUP BY p.model_id ORDER BY revenue DESC LIMIT 30`);
+  for (const m of models) m.title = modelLabelById(m.model_id);
+  return { months, shortage, overstock, fastest, models };
+});
+
+// Vozila-donori: zarada po vozilu i po modelu, brzina zarade
+app.get('/api/analytics/vehicles', ctx => {
+  need(ctx.user, 'ROLE_ANL');
+  const rows = all(`SELECT v.id, v.internal_code, v.model_id, v.model_year, v.created_date, v.status,
+      (SELECT count(*) FROM spare_part p WHERE p.vehicle_id=v.id AND p.active=1) parts,
+      (SELECT count(*) FROM spare_part p WHERE p.vehicle_id=v.id AND p.status='SOLD') sold,
+      (SELECT coalesce(sum(CASE WHEN h.status='SOLD' THEN h.the_price ELSE -h.the_price END),0) FROM spare_part_sale_history h JOIN spare_part p ON p.id=h.part_id WHERE p.vehicle_id=v.id) earned,
+      (SELECT coalesce(sum(h.the_price),0) FROM spare_part_sale_history h JOIN spare_part p ON p.id=h.part_id WHERE p.vehicle_id=v.id AND h.status='SOLD' AND julianday(h.created_date) - julianday(v.created_date) <= 90) earned_90,
+      (SELECT coalesce(sum(p.price),0) FROM spare_part p WHERE p.vehicle_id=v.id AND p.active=1 AND p.status='UNSOLD') stock_value
+    FROM vehicle v WHERE v.active=1`);
+  for (const r of rows) { r.title = modelLabelById(r.model_id); r.days = Math.round((Date.now() - new Date(r.created_date.replace(' ', 'T'))) / 864e5); r.per_month = r.days > 30 ? Math.round(r.earned / (r.days / 30)) : null; }
+  const byModel = {};
+  for (const r of rows) {
+    const k = r.title.replace(/\s*\(.*\)$/, '');
+    const m = (byModel[k] ||= { title: k, vehicles: 0, earned: 0, earned_90: 0, sold: 0 });
+    m.vehicles++; m.earned += r.earned; m.earned_90 += r.earned_90; m.sold += r.sold;
+  }
+  const models = Object.values(byModel).map(m => ({ ...m, avg: Math.round(m.earned / m.vehicles), avg_90: Math.round(m.earned_90 / m.vehicles) })).filter(m => m.vehicles >= 2).sort((a, b) => b.avg - a.avg).slice(0, 30);
+  const top = [...rows].sort((a, b) => b.earned - a.earned).slice(0, 25);
+  const recent = [...rows].filter(r => r.days <= 365).sort((a, b) => b.created_date.localeCompare(a.created_date)).slice(0, 25);
+  const total = { vehicles: rows.length, earned: rows.reduce((s, r) => s + r.earned, 0), avg: Math.round(rows.reduce((s, r) => s + r.earned, 0) / (rows.length || 1)) };
+  return { total, models, top, recent };
+});
+
+// Radnici: detaljno + brzina realizacije naloga
+app.get('/api/analytics/workers', ctx => {
+  need(ctx.user, 'ROLE_ANL');
+  const to = ctx.query.to || today(), from = ctx.query.from || to.slice(0, 8) + '01';
+  const req = all(`SELECT r.realization_by_id id, u.full_name name, count(*) n,
+      round(avg((julianday(coalesce(r.realization_date, r.closed_date)) - julianday(r.created_date)) * 1440)) to_take_min,
+      round(avg((julianday(r.closed_date) - julianday(r.created_date)) * 1440)) to_close_min,
+      sum(r.urgent) urgent FROM req r LEFT JOIN core_user u ON u.id=r.realization_by_id
+    WHERE r.active=1 AND r.closed_date IS NOT NULL AND r.created_date >= ? AND r.created_date < date(?, '+1 day') GROUP BY r.realization_by_id ORDER BY n DESC`, from, to);
+  const daily = all(`SELECT u.full_name name, date(p.created_date) d, count(*) n FROM spare_part p LEFT JOIN core_user u ON u.id=p.created_by_id
+    WHERE p.created_date >= ? AND p.created_date < date(?, '+1 day') GROUP BY p.created_by_id, d`, from, to);
+  const perDay = {};
+  for (const r of daily) { const x = (perDay[r.name] ||= { name: r.name, days: 0, total: 0, best: 0 }); x.days++; x.total += r.n; x.best = Math.max(x.best, r.n); }
+  const entry = Object.values(perDay).map(x => ({ ...x, avg: Math.round(x.total / x.days) })).sort((a, b) => b.total - a.total);
+  const quality = all(`SELECT u.full_name name, count(*) n, sum(p.catalog_number IS NULL OR p.catalog_number='') no_cat,
+      sum(NOT EXISTS (SELECT 1 FROM lib_attachment a WHERE a.object_id=p.id AND a.active=1)) no_img, sum(p.price IS NULL OR p.price=0) no_price
+    FROM spare_part p LEFT JOIN core_user u ON u.id=p.created_by_id WHERE p.created_date >= ? AND p.created_date < date(?, '+1 day') GROUP BY p.created_by_id ORDER BY n DESC`, from, to);
+  return { from, to, req, entry, quality };
+});
