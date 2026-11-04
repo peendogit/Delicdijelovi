@@ -14,6 +14,8 @@ function log(object_type, object_id, action, ok, message) {
 }
 
 async function headers(json = true) {
+  // BLOKADA: dok OLX integracija nije uključena, nijedan zahtjev prema OLX-u ne može izaći iz programa
+  if (!olxEnabled()) throw new Error('OLX je isključen — nema komunikacije sa OLX-om');
   const h = { Accept: 'application/json' };
   if (json) h['Content-Type'] = 'application/json';
   const user = configStr('OLX_USERNAME'), pass = configStr('OLX_PASSWORD');
