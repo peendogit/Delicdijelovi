@@ -166,7 +166,7 @@ route('/dijelovi/:id', async ({ id }, query, main) => {
     ['Cijena', h('span', p.price ? h('span.price', fmtMoney(p.price, p.currency_id)) : h('span.muted', 'nije unesena'), can('ROLE_SP_U') && !sold ? h('button.sm', { style: { marginLeft: '8px' }, onclick: async () => {
       const pr = input('price', p.price ?? '', { type: 'number', step: '0.01', inputmode: 'decimal' });
       if (await modal('Cijena: ' + p.internal_code, [field('Nova cijena (KM)', pr)], [{ label: 'Odustani' }, { label: 'Sačuvaj', primary: true, onClick: () => PUT('/api/parts/' + id, { price: pr.value === '' ? null : Number(pr.value), currency_id: p.currency_id || 'BAM' }) }])) reload();
-    } }, '✏️') : null)],
+    } }, '✏️') : null, can('ROLE_SP_U') && !sold ? h('button.sm', { style: { marginLeft: '4px' }, onclick: async () => { const { suggestionDialog } = await import('./pricing.js'); if (await suggestionDialog(id, p.price)) reload(); } }, '💡') : null)],
     ['Lokacija', p.location_id ? h('a', { href: '#/magacin/lokacija/' + p.location_id }, p.location_label) : '—'],
     ['Vrsta', p.type_title + (p.group_title ? ' (' + p.group_title + ')' : '')],
     ['Vozilo', p.model_label],
@@ -259,6 +259,13 @@ async function partForm(p, query, main) {
   const catReq = h('b.req', ' *');
   const partSet = check('part_set', p.part_set, 'Komplet (set)');
   const priceI = input('price', p.price, { type: 'number', step: '0.01', inputmode: 'decimal' });
+  const priceHint = h('small.muted', { style: { minHeight: '16px' } });
+  let ph;
+  const updHint = () => { clearTimeout(ph); ph = setTimeout(async () => {
+    const tId = typeC.value, mId = modelC.value; if (!tId) { priceHint.textContent = ''; return; }
+    const s = await GET('/api/pricing/preview?' + qs({ type_id: tId, model_id: mId, make_id: makeC.value, catalog_number: catI.value, model_year: yearI.value, damaged: form.querySelector('[name=damaged]')?.checked ? 1 : '' }));
+    clear(priceHint, s.price ? h('a', { href: '#', onclick: e => { e.preventDefault(); priceI.value = s.price; } }, `💡 prijedlog ${s.price} KM`, h('span', ` (${s.n} prod., ${s.basis}) — klikni za upis`)) : '');
+  }, 400); };
   const loc = isNew ? locationInput('location_code', { placeholder: L.default_location ? 'prazno = ' + L.default_location.label.split(' / ').pop() : 'P123' }) : null;
 
   const fillVehicle = v => {
@@ -300,6 +307,7 @@ async function partForm(p, query, main) {
     }
   };
   typeC.addEventListener('change', applyType);
+  for (const el of [typeC, modelC, makeC, catI, yearI]) el.addEventListener('change', updHint);
 
   const save = async (next) => {
     const d = formData(form);
@@ -348,7 +356,7 @@ async function partForm(p, query, main) {
       h('label.field', h('span', 'Kataloški broj', catReq), catI),
       h('div.field', h('span', ' '), check('catalog_number_damaged', p.catalog_number_damaged, 'Kat. broj nečitljiv/oštećen')),
       field('Kat. broj proizvođača', input('catalog_number_manufacturer', p.catalog_number_manufacturer, { maxlength: 100 })),
-      field('Cijena', priceI), field('Valuta', select('currency_id', p.currency_id || L.currency, L.currencies.map(c => ({ value: c, label: c === 'BAM' ? 'KM (BAM)' : c })), { empty: false })),
+      h('label.field', h('span', 'Cijena'), priceI, priceHint), field('Valuta', select('currency_id', p.currency_id || L.currency, L.currencies.map(c => ({ value: c, label: c === 'BAM' ? 'KM (BAM)' : c })), { empty: false })),
       h('div.field', h('span', ' '), h('div.row', partSet, check('damaged', p.damaged, 'Oštećen'))),
       field('Napomena', textarea('note', p.note, { rows: 2 }), { full: true }),
       children,
@@ -360,6 +368,6 @@ async function partForm(p, query, main) {
       h('button', { type: 'button', onclick: () => history.back() }, 'Odustani'),
       isNew ? h('button', { type: 'button', onclick: () => save(true) }, '💾 Sačuvaj + sljedeći') : null,
       h('button.primary', { type: 'button', onclick: () => save(false) }, '💾 Sačuvaj')));
-  applyType();
+  applyType(); updHint();
   return h('div', h('div.head', h('button.icon', { onclick: () => history.back() }, '←'), h('h1', isNew ? 'Novi dio' : 'Izmjena: ' + p.internal_code)), lastBox, form);
 }

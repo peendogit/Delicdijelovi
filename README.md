@@ -17,6 +17,7 @@ Na Node.js 22.13+ ne treba nikakav paket. Na Node.js 20 pokreni jednom `npm inst
 | **Magacin** | magacini → prolazi → regali → police → palete/kutije; automatski kodovi (A/B/C, R1, P123, PL5, K45), dodatne oznake (P600B), merdevine/viljuškar, premještanje paleta/kutija, etikete |
 | **Premještanje** | ekran za magacionera: lokacija pa šifre dijelova jedna za drugom (Enter ili 📷 skeniranje kamerom) |
 | **Inventura** | izaberi policu/kutiju, skeniraj sve što je fizički na njoj → šta nedostaje, šta je višak (višak se jednim dugmetom upiše na tu lokaciju) |
+| **Prijedlozi cijena** | za dijelove bez cijene predlaže cijenu iz vaših stvarnih prodaja (isti kat. broj → isti model → marka → vrsta), sa pouzdanošću; odobravanje pojedinačno ili masovno, svako odobravanje se može poništiti. Prijedlog se vidi i pri unosu novog dijela i na dijelu (💡) |
 | **Analitika** | promet, prodato, uneseno, po radnicima (unos, slike, premještanja, prodaja, nalozi), najprodavanije vrste i marke, najisplativija vozila, stanje skladišta |
 | **Korisnici** | korisnici, lozinke, profili i prava (ista prava kao stari program: ROLE_SP_*, ROLE_VEH_*, ROLE_REQ_* …) |
 | **Administracija** | vrste dijelova (strane, pod-dijelovi, pravila), grupe, marke, modeli, šifarnici felni, tipovi lokacija, podešavanja (opisi oglasa…), pozadinski zadaci, OLX |

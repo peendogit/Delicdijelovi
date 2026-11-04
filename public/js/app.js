@@ -8,12 +8,14 @@ import './modules/req.js';
 import './modules/users.js';
 import './modules/admin.js';
 import './modules/analytics.js';
+import './modules/pricing.js';
 
 const app = $('#app');
 
 const NAV = [
   ['/', '🏠', 'Početna', () => true],
   ['/dijelovi', '🔧', 'Dijelovi', () => can('ROLE_SP_R', 'ROLE_SP')],
+  ['/cijene', '💡', 'Prijedlozi cijena', () => can('ROLE_SP_U')],
   ['/nalozi', '📋', 'Nalozi', () => can('ROLE_REQ', 'ROLE_REQ_R', 'ROLE_REQ_C', 'ROLE_REQ_ST', 'ROLE_WHS_CLERK')],
   ['/vozila', '🚗', 'Vozila (donori)', () => can('ROLE_VEH_R', 'ROLE_VEH')],
   ['/felne', '⚙️', 'Felne', () => can('ROLE_RIMS_R', 'ROLE_RIMS')],
@@ -97,6 +99,7 @@ async function render(opts = {}) {
   const main = shell.main;
   if (!m) { clear(main, h('div.empty', 'Stranica ne postoji')); return; }
   try {
+    if (!opts.keepScroll) document.querySelectorAll('.modal-bg').forEach(m => m.remove()); // prelazak na drugi ekran zatvara otvorene prozore
     const y = window.scrollY;
     if (!opts.keepScroll) clear(main, h('div.loading', 'Učitavam…'));
     const out = await m.r.render(m.params, m.query, main);
