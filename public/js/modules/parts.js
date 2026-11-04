@@ -1,0 +1,362 @@
+import {
+  h, clear, route, GET, POST, PUT, DEL, qs, go, can, state, lookups, models, E, img, fmtDT, fmtDate, fmtMoney, field, input, textarea, select, check, combo,
+  locationInput, formData, modal, confirmBox, toast, run, gallery, kv, badge, statusBadge, reqBadge, pager, tabs, loading, empty, setQuery, printLabels, uploadImages,
+} from '../lib.js';
+
+export const typeItems = L => L.types.filter(t => t.active).map(t => ({ value: t.id, label: t.title, sub: L.groups.find(g => g.id === t.group_id)?.title }));
+export const makeItems = L => L.makes.filter(m => m.active).map(m => ({ value: m.id, label: m.name }));
+export const modelItems = list => list.map(m => ({ value: m.id, label: m.label }));
+export const userItems = L => L.users.map(u => ({ value: u.id, label: u.full_name }));
+
+// Lista dijelova (koristi se i na drugim ekranima)
+export function partItem(p, opts = {}) {
+  return h('a.item', { href: '#/dijelovi/' + p.id },
+    opts.check || null,
+    h('img.th', { src: img(p.image_id), loading: 'lazy' }),
+    h('div.bd',
+      h('div.t', p.title),
+      h('div.s', h('span.code', p.internal_code), p.catalog_number ? h('span', p.catalog_number) : null, p.side ? h('span', E.side[p.side] || p.side) : null,
+        p.location_code ? h('b', '📍 ' + p.location_code) : null, p.vehicle_code ? h('span', '🚗 ' + p.vehicle_code) : null, p.created_date ? h('span', fmtDate(p.created_date)) : null)),
+    h('div.rt', p.price ? h('span.price', fmtMoney(p.price, p.currency_id)) : h('span.muted', 'bez cijene'), p.status === 'SOLD' ? statusBadge('SOLD') : null, p.part_set ? badge('komplet') : null, p.parent_id ? badge('dio kompleta') : null));
+}
+
+route('/dijelovi', async (params, query, main) => {
+  const L = await lookups();
+  const q = { status: 'UNSOLD', sort: 'new', offset: 0, ...query };
+  q.offset = Number(q.offset) || 0;
+  const LIMIT = 50;
+  const results = h('div');
+  const selected = new Set();
+  const bulk = h('div.card', { style: { display: 'none', position: 'sticky', top: '56px', zIndex: 10 } });
+  const updBulk = () => {
+    bulk.style.display = selected.size ? 'block' : 'none';
+    clear(bulk, h('div.row', h('b.grow', `Izabrano: ${selected.size}`),
+      can('ROLE_REQ_C') ? h('button.primary', { onclick: () => reqDialog([...selected]).then(ok => { if (ok) { selected.clear(); updBulk(); load(); } }) }, '📋 Nalog') : null,
+      h('button', { onclick: async () => { const rows = await Promise.all([...selected].map(id => GET('/api/parts/' + id))); printLabels(rows.map(p => ({ code: p.internal_code, title: p.title, sub: p.location_code }))); } }, '🏷 Etikete'),
+      h('button', { onclick: () => { selected.clear(); updBulk(); load(); } }, 'Poništi')));
+  };
+
+  const load = async () => {
+    setQuery(Object.fromEntries(Object.entries(q).filter(([k, v]) => v && !(k === 'status' && v === 'UNSOLD') && !(k === 'sort' && v === 'new') && !(k === 'offset' && !v))));
+    clear(results, loading());
+    const d = await GET('/api/parts?' + qs({ ...q, limit: LIMIT }));
+    clear(results,
+      h('div.muted', { style: { margin: '6px 2px' } }, `Pronađeno: ${d.total.toLocaleString('bs-BA')}`),
+      h('div.card.p0', h('div.list', d.rows.length ? d.rows.map(p => partItem(p, {
+        check: can('ROLE_REQ_C') && p.status === 'UNSOLD' ? h('input', { type: 'checkbox', checked: selected.has(p.id), onclick: e => { e.stopPropagation(); }, onchange: e => { e.target.checked ? selected.add(p.id) : selected.delete(p.id); updBulk(); } }) : null,
+      })) : empty('Nema dijelova za zadate uslove'))),
+      pager(d.total, q.offset, LIMIT, off => { q.offset = off; load(); window.scrollTo(0, 0); }));
+  };
+  const set = (k, v) => { q[k] = v; q.offset = 0; load(); };
+
+  const sInp = input('q', q.q, { placeholder: 'Traži: naziv, kataloški broj, šifra, motor…', type: 'search' });
+  let st; sInp.addEventListener('input', () => { clearTimeout(st); st = setTimeout(() => set('q', sInp.value.trim()), 400); });
+
+  const makeC = combo('make_id', q.make_id, makeItems(L), { placeholder: 'Marka' });
+  const modelC = combo('model_id', q.model_id, q.make_id ? modelItems(await models(q.make_id)) : [], { placeholder: 'Model' });
+  makeC.addEventListener('change', async () => { q.model_id = ''; modelC.setItems(modelItems(await models(makeC.value))); set('make_id', makeC.value); });
+  modelC.addEventListener('change', () => set('model_id', modelC.value));
+  const typeC = combo('type_id', q.type_id, typeItems(L), { placeholder: 'Vrsta dijela' });
+  typeC.addEventListener('change', () => set('type_id', typeC.value));
+  const sel = (k, opts, ph) => { const s = select(k, q[k], opts, { placeholder: ph }); s.onchange = () => set(k, s.value); return s; };
+  const locI = input('loc', '', { placeholder: 'Lokacija (P123)' });
+  locI.onchange = async () => {
+    if (!locI.value) return set('location_id', '');
+    const r = await GET('/api/assets/find?code=' + encodeURIComponent(locI.value));
+    const exact = r.find(x => x.code_extended.toUpperCase() === locI.value.trim().toUpperCase());
+    if (exact) set('location_id', exact.id); else toast('Lokacija nije pronađena', 'err');
+  };
+  const dateF = input('date_from', q.date_from, { type: 'date' }); dateF.onchange = () => set('date_from', dateF.value);
+  const dateT = input('date_to', q.date_to, { type: 'date' }); dateT.onchange = () => set('date_to', dateT.value);
+  const userC = combo('created_by_id', q.created_by_id, userItems(L), { placeholder: 'Unio korisnik' });
+  userC.addEventListener('change', () => set('created_by_id', userC.value));
+
+  const hasF = ['make_id', 'type_id', 'group_id', 'side', 'fuel_type', 'gearbox_type', 'location_id', 'has_price', 'no_images', 'olx', 'date_from', 'date_to', 'created_by_id', 'drive_train', 'vehicle_id'].some(k => q[k]);
+  const filters = h('div.filters', { style: { display: hasF ? 'grid' : 'none' } },
+    makeC, modelC, typeC,
+    sel('group_id', L.groups.filter(g => g.active).map(g => ({ value: g.id, label: g.title })), 'Grupa'),
+    sel('side', E.side, 'Strana'), sel('fuel_type', E.fuel, 'Gorivo'), sel('gearbox_type', E.gearbox, 'Mjenjač'), sel('drive_train', E.drive, 'Pogon'),
+    locI, sel('has_price', { 1: 'Sa cijenom', 0: 'Bez cijene' }, 'Cijena'), sel('no_images', { 1: 'Bez slika' }, 'Slike'), sel('olx', { 1: 'Na OLX-u', 0: 'Nije na OLX-u' }, 'OLX'),
+    userC, field('Unesen od', dateF), field('Unesen do', dateT),
+    h('button', { onclick: () => go('/dijelovi') }, 'Očisti filtere'));
+
+  const statusChips = h('div.chips', [['UNSOLD', 'Na stanju'], ['SOLD', 'Prodati'], ['ALL', 'Svi']].map(([k, l]) =>
+    h('button.chip' + (q.status === k ? '.act' : ''), { onclick: e => { [...e.target.parentNode.children].forEach(c => c.classList.remove('act')); e.target.classList.add('act'); set('status', k); } }, l)));
+  const sortS = sel('sort', { new: 'Najnoviji', old: 'Najstariji', mod: 'Zadnje mijenjani', price_desc: 'Cijena ↓', price_asc: 'Cijena ↑', title: 'Naziv A-Ž' }, 'Sortiranje');
+  sortS.style.width = 'auto';
+
+  const view = h('div',
+    h('div.head', h('h1', 'Dijelovi'), can('ROLE_SP_C') ? h('button.primary', { onclick: () => go('/dijelovi/novi') }, '+ Novi dio') : null),
+    h('div.card', h('div.row', h('div.grow', sInp), h('button', { onclick: () => { filters.style.display = filters.style.display === 'none' ? 'grid' : 'none'; } }, '⚙ Filteri')),
+      h('div.row', { style: { marginTop: '8px' } }, statusChips, h('div.grow'), sortS), filters),
+    bulk, results);
+  clear(main, view);
+  load();
+});
+
+// ---------- Dijalozi ----------
+export async function reqDialog(partIds, rimsIds = []) {
+  const urgent = check('urgent', false, 'Hitno');
+  const ship = check('shipment', false, 'Za slanje (brza pošta)');
+  const desc = textarea('description', '', { placeholder: 'Napomena za magacin (npr. odnesi u servis, skini nosač…)' });
+  return modal(`Nalog magacinu (${partIds.length + rimsIds.length})`, [urgent, ship, desc], [{ label: 'Odustani' }, {
+    label: 'Pošalji nalog', primary: true,
+    onClick: async () => { await POST('/api/req', { part_ids: partIds, rims_ids: rimsIds, urgent: urgent.querySelector('input').checked, shipment: ship.querySelector('input').checked, description: desc.value }); toast('Nalog poslat'); },
+  }]);
+}
+export async function moveDialog(kind, id) {
+  const loc = locationInput();
+  return modal('Premjesti na lokaciju', [field('Nova lokacija', loc)], [{ label: 'Odustani' }, {
+    label: 'Premjesti', primary: true,
+    onClick: async () => { const r = await POST(`/api/${kind}/${id}/move`, { location_code: loc.querySelector('input').value }); toast('Premješteno' + (r.location_label ? ': ' + r.location_label : '')); },
+  }]);
+}
+export async function sellDialog(kind, it) {
+  const price = input('price', it.price ?? '', { type: 'number', step: '0.01', inputmode: 'decimal' });
+  const note = textarea('note', '', { placeholder: 'Napomena (kupac, račun…)' });
+  const kids = kind === 'parts' && it.children?.some(c => c.status === 'UNSOLD' && !c.parent_detached) ? check('with_children', true, 'Prodaj i dijelove kompleta') : null;
+  return modal('Prodaja: ' + it.internal_code, [field('Prodajna cijena (KM)', price), kids, note], [{ label: 'Odustani' }, {
+    label: '💰 Prodaj', primary: true,
+    onClick: async () => { await POST(`/api/${kind}/${it.id}/sell`, { price: price.value, note: note.value, with_children: kids?.querySelector('input').checked }); toast('Prodato'); },
+  }]);
+}
+export async function returnDialog(kind, it) {
+  const last = it.sale_history?.find(s => s.status === 'SOLD');
+  const price = input('price', last?.the_price ?? '', { type: 'number', step: '0.01' });
+  const note = textarea('note', '', { placeholder: 'Razlog povrata' });
+  const loc = locationInput();
+  return modal('Povrat: ' + it.internal_code, [field('Vraćeni iznos (KM)', price), field('Lokacija (prazno = pult/povrat)', loc), note], [{ label: 'Odustani' }, {
+    label: '↩ Vrati na stanje', primary: true,
+    onClick: async () => { await POST(`/api/${kind}/${it.id}/return`, { price: price.value, note: note.value, location_code: loc.querySelector('input').value || undefined }); toast('Vraćeno na stanje'); },
+  }]);
+}
+async function adTextDialog(kind, id) {
+  const d = await GET(`/api/olx/describe/${kind}/${id}`);
+  const ta = textarea('t', d.html.replace(/<[^>]+>/g, '').replace(/\n{3,}/g, '\n\n').trim(), { rows: 12 });
+  return modal('Tekst oglasa', [field('Naslov', input('title', d.title)), field('Kratki opis', input('s', d.short)), field('Opis', ta)], [
+    { label: 'Zatvori' }, { label: '📋 Kopiraj opis', primary: true, onClick: async () => { await navigator.clipboard.writeText(ta.value); toast('Kopirano'); return false; } }]);
+}
+
+// ---------- Detalj ----------
+route('/dijelovi/:id', async ({ id }, query, main) => {
+  if (id === 'novi') return partForm(null, query, main);
+  const p = await GET('/api/parts/' + id);
+  const reload = () => go('/dijelovi/' + id + '?r=' + Date.now());
+  const sold = p.status === 'SOLD';
+  const act = async (fn) => { const r = await fn(); if (r) reload(); };
+  const actions = h('div.actions',
+    can('ROLE_SP_U') ? h('button', { onclick: () => go(`/dijelovi/${id}/uredi`) }, '✏️ Uredi') : null,
+    !sold && can('ROLE_SP_LOC_U', 'ROLE_WHS_CLERK') ? h('button', { onclick: () => act(() => moveDialog('parts', id)) }, '📍 Premjesti') : null,
+    !sold && can('ROLE_REQ_C') ? h('button', { onclick: () => act(() => reqDialog([id])) }, '📋 Nalog') : null,
+    !sold && can('ROLE_SP_SALE') ? h('button.primary', { onclick: () => act(() => sellDialog('parts', p)) }, '💰 Prodaj') : null,
+    sold && can('ROLE_SP_SALE') ? h('button', { onclick: () => act(() => returnDialog('parts', p)) }, '↩ Povrat') : null,
+    can('ROLE_SP_C') ? h('button', { onclick: async () => {
+      const side = select('side', p.side, E.side, { placeholder: 'Ista strana' });
+      const ok = await modal('Kopiraj dio', [h('p.muted', 'Napravi novi dio sa istim podacima (nova šifra).'), field('Strana', side)], [{ label: 'Odustani' }, { label: 'Kopiraj', primary: true, onClick: async () => { const r = await POST(`/api/parts/${id}/copy`, side.value ? { side: side.value } : {}); go('/dijelovi/' + r.id); } }]);
+    } }, '⧉ Kopiraj') : null,
+    h('button', { onclick: () => printLabels([{ code: p.internal_code, title: p.title, sub: [p.catalog_number, p.location_code].filter(Boolean).join(' · ') }]) }, '🏷 Etiketa'),
+    h('button', { onclick: () => adTextDialog('part', id) }, '📝 Tekst oglasa'),
+    can('ROLE_SP_ADM') && !p.external_olx_id && !sold ? h('button', { onclick: () => run(() => POST(`/api/olx/publish/part/${id}`), 'Objavljeno na OLX').then(reload) }, 'OLX objavi') : null,
+    can('ROLE_SP_ADM') && p.external_olx_id ? h('button', { onclick: () => run(() => POST(`/api/olx/remove/part/${id}`), 'Uklonjeno sa OLX').then(reload) }, 'OLX ukloni') : null,
+    can('ROLE_SP_D') ? h('button.danger', { onclick: async () => { if (await confirmBox('Obrisati dio ' + p.internal_code + '?')) { await run(() => DEL('/api/parts/' + id), 'Obrisano'); go('/dijelovi'); } } }, '🗑') : null);
+
+  const info = kv([
+    ['Šifra', h('span.code', p.internal_code)],
+    ['Status', statusBadge(p.status)],
+    ['Cijena', p.price ? h('span.price', fmtMoney(p.price, p.currency_id)) : 'nije unesena'],
+    ['Lokacija', p.location_id ? h('a', { href: '#/magacin/lokacija/' + p.location_id }, p.location_label) : '—'],
+    ['Vrsta', p.type_title + (p.group_title ? ' (' + p.group_title + ')' : '')],
+    ['Vozilo', p.model_label],
+    ['Donor', p.vehicle_id ? h('a', { href: '#/vozila/' + p.vehicle_id }, '🚗 ' + p.vehicle_code) : null],
+    ['Kataloški broj', p.catalog_number ? p.catalog_number : (p.catalog_number_damaged ? h('i.muted', 'nečitljiv/oštećen') : null)],
+    ['Kat. br. proizvođača', p.catalog_number_manufacturer],
+    ['Strana', E.side[p.side] || p.side],
+    ['Godište', p.model_year],
+    ['Gorivo', E.fuel[p.fuel_type] || p.fuel_type],
+    ['Motor', [p.cylinder_capacity ? p.cylinder_capacity + ' ccm' : '', p.power ? p.power + ' kW' : '', p.engine_code].filter(Boolean).join(' · ')],
+    ['Broj motora', p.engine_number],
+    ['Mjenjač', [E.gearbox[p.gearbox_type], p.gearbox_speed ? p.gearbox_speed + ' br.' : '', p.gearbox_code].filter(Boolean).join(' · ')],
+    ['Pogon', E.drive[p.drive_train]], ['Karoserija', E.body[p.vehicle_type]], ['Boja', p.color],
+    ['Kilometraža', p.mileage ? p.mileage.toLocaleString('bs-BA') + ' km' : null], ['Broj šasije', p.chassis_number],
+    ['Komplet', p.part_set ? 'Da' : null], ['Oštećen', p.damaged ? 'Da' : null], ['Napomena', p.note],
+    ['Dio kompleta', p.parent ? h('a', { href: '#/dijelovi/' + p.parent.id }, p.parent.internal_code + ' ' + p.parent.title + (p.parent_detached ? ' (odvojen)' : '')) : null],
+    ['OLX', p.external_olx_id ? h('a', { href: 'https://olx.ba/artikal/' + p.external_olx_id, target: '_blank' }, p.external_olx_id) : null],
+    ['Unio', (p.created_by_name || '') + ' · ' + fmtDT(p.created_date)],
+    ['Izmijenio', p.modified_date !== p.created_date ? (p.modified_by_name || '') + ' · ' + fmtDT(p.modified_date) : null],
+  ]);
+
+  let tab = 'loc';
+  const tabBody = h('div');
+  const renderTab = () => {
+    const T = {
+      loc: () => p.location_history.length ? h('table.tbl', h('tbody', p.location_history.map(r => h('tr', h('td', fmtDT(r.created_date)), h('td', r.action === 'IN' ? '➡ U' : '⬅ Iz'), h('td', h('a', { href: '#/magacin/lokacija/' + r.location_id }, r.code)), h('td.muted', r.user_name))))) : empty(),
+      sale: () => p.sale_history.length ? h('table.tbl', h('tbody', p.sale_history.map(r => h('tr', h('td', fmtDT(r.created_date)), h('td', r.status === 'SOLD' ? badge('Prodaja', 'green') : badge('Povrat', 'red')), h('td.n', fmtMoney(r.the_price, r.currency_id)), h('td.muted', r.user_name), h('td.muted', r.note || ''))))) : empty(),
+      req: () => p.requests.length ? h('table.tbl', h('tbody', p.requests.map(r => h('tr.click', { onclick: () => go('/nalozi/' + r.id) }, h('td', '#' + r.the_number), h('td', reqBadge(r.status)), h('td', fmtDT(r.created_date)), h('td.muted', r.created_by_name), h('td.muted', r.description || ''))))) : empty(),
+      set: () => h('div',
+        p.children.length ? h('table.tbl', h('tbody', p.children.map(c => h('tr.click', { onclick: () => go('/dijelovi/' + c.id) }, h('td', h('span.code', c.internal_code)), h('td', c.title), h('td', statusBadge(c.status)), h('td', c.parent_detached ? badge('odvojen') : ''))))) : empty('Nema pod-dijelova'),
+        p.type_children.length && can('ROLE_SP_C') ? h('div', { style: { marginTop: '10px' } }, h('div.muted', 'Dodaj pod-dio kompleta:'), h('div.actions', p.type_children.map(t => h('button.sm', {
+          onclick: async () => { const r = await run(() => POST('/api/parts', { vehicle_id: p.vehicle_id, make_id: p.make_id, model_id: p.model_id, model_year: p.model_year, type_id: t.id, side: p.side, parent_id: id, catalog_number_damaged: true, location_id: p.location_id }), 'Pod-dio dodat'); go('/dijelovi/' + r.id); },
+        }, '+ ' + t.title)))) : null,
+        p.parent && can('ROLE_SP_U') ? h('button', { style: { marginTop: '10px' }, onclick: () => run(() => POST(`/api/parts/${id}/detach`, { detached: !p.parent_detached }), 'Sačuvano').then(reload) }, p.parent_detached ? 'Vrati u komplet' : 'Odvoji od kompleta') : null),
+    };
+    clear(tabBody, tabs([['loc', 'Lokacije'], ['sale', `Prodaja (${p.sale_history.length})`], ['req', `Nalozi (${p.requests.length})`], ['set', `Komplet (${p.children.length})`]], tab, k => { tab = k; renderTab(); }), T[tab]());
+  };
+  renderTab();
+
+  return h('div',
+    h('div.head', h('button.icon', { onclick: () => history.back() }, '←'), h('h1', p.title)),
+    h('div.card', actions),
+    h('div.grid2',
+      h('div.card', gallery(p.images, { type: 'SPARE_PART', objectId: id, canEdit: can('ROLE_SP_U', 'ROLE_SP_C', 'ROLE_USR_LIB_UP'), onChange: reload })),
+      h('div.card', info)),
+    h('div.card', tabBody));
+});
+
+route('/dijelovi/:id/uredi', async ({ id }, query, main) => partForm(await GET('/api/parts/' + id), query, main));
+
+// ---------- Forma (novi / izmjena) ----------
+let vehiclesCache = null;
+async function vehicleItems() {
+  if (!vehiclesCache) vehiclesCache = (await GET('/api/vehicles?limit=500')).rows;
+  return vehiclesCache.map(v => ({ value: v.id, label: `${v.internal_code} · ${v.model_label} ${v.model_year}`, sub: [E.fuel[v.fuel_type], v.engine_code, v.chassis_number].filter(Boolean).join(' · '), v }));
+}
+
+async function partForm(p, query, main) {
+  const L = await lookups();
+  const isNew = !p;
+  p = p || { make_id: query.make_id, model_id: query.model_id, vehicle_id: query.vehicle_id, currency_id: L.currency };
+  let lastCreated = null;
+  const form = h('form.card', { onsubmit: e => e.preventDefault() });
+  const vItems = await vehicleItems();
+  const vehC = combo('vehicle_id', p.vehicle_id, vItems, { placeholder: 'Izaberi vozilo-donora (šifra, model, VIN)…' });
+  const makeC = combo('make_id', p.make_id, makeItems(L), { placeholder: 'Marka' });
+  const modelC = combo('model_id', p.model_id, p.make_id ? modelItems(await models(p.make_id)) : [], { placeholder: 'Model' });
+  const typeC = combo('type_id', p.type_id, typeItems(L), { placeholder: 'npr. FAR, ALTERNATOR, VRATA…' });
+  const sideS = select('side', p.side, E.side);
+  const children = h('div.full', { style: { gridColumn: '1 / -1' } });
+  const F = {};
+  const mk = (name, el) => (F[name] = el);
+  const engineFields = [
+    field('Gorivo', mk('fuel_type', select('fuel_type', p.fuel_type, E.fuel))),
+    field('Kubikaža (ccm)', mk('cylinder_capacity', input('cylinder_capacity', p.cylinder_capacity, { type: 'number', inputmode: 'numeric' }))),
+    field('Snaga (kW)', mk('power', input('power', p.power, { type: 'number', inputmode: 'numeric' }))),
+    field('Oznaka motora', mk('engine_code', input('engine_code', p.engine_code, { maxlength: 10, style: { textTransform: 'uppercase' } }))),
+    h('div.field', { 'data-eng-no': 1 }, h('span', 'Broj motora'), mk('engine_number', input('engine_number', p.engine_number, { maxlength: 20 }))),
+    field('Mjenjač', mk('gearbox_type', select('gearbox_type', p.gearbox_type, E.gearbox))),
+    field('Broj brzina', mk('gearbox_speed', input('gearbox_speed', p.gearbox_speed, { type: 'number' }))),
+    field('Oznaka mjenjača', mk('gearbox_code', input('gearbox_code', p.gearbox_code, { maxlength: 10, style: { textTransform: 'uppercase' } }))),
+    field('Pogon', mk('drive_train', select('drive_train', p.drive_train, E.drive))),
+    field('Karoserija', mk('vehicle_type', select('vehicle_type', p.vehicle_type, E.body))),
+    field('Boja', mk('color', input('color', p.color, { maxlength: 20 }))),
+    field('Kilometraža', mk('mileage', input('mileage', p.mileage, { type: 'number' }))),
+    field('Broj šasije (VIN)', mk('chassis_number', input('chassis_number', p.chassis_number, { maxlength: 17, style: { textTransform: 'uppercase' } }))),
+  ];
+  const yearI = input('model_year', p.model_year, { type: 'number', inputmode: 'numeric', min: 1950, max: 2100 });
+  const catI = input('catalog_number', p.catalog_number, { maxlength: 50, style: { textTransform: 'uppercase' } });
+  const catReq = h('b.req', ' *');
+  const partSet = check('part_set', p.part_set, 'Komplet (set)');
+  const priceI = input('price', p.price, { type: 'number', step: '0.01', inputmode: 'decimal' });
+  const loc = isNew ? locationInput('location_code', { placeholder: L.default_location ? 'prazno = ' + L.default_location.label.split(' / ').pop() : 'P123' }) : null;
+
+  const fillVehicle = v => {
+    if (!v) return;
+    makeC.value = v.make_id;
+    models(v.make_id).then(ms => { modelC.setItems(modelItems(ms)); modelC.value = v.model_id; });
+    yearI.value = v.model_year || '';
+    for (const k of ['fuel_type', 'cylinder_capacity', 'power', 'engine_code', 'gearbox_type', 'drive_train', 'chassis_number']) if (F[k] && v[k] != null && !F[k].value) F[k].value = v[k];
+    if (F.vehicle_type && !F.vehicle_type.value && v.the_type) F.vehicle_type.value = v.the_type;
+  };
+  vehC.addEventListener('change', async e => {
+    const it = e.detail; if (!it) return;
+    const full = await GET('/api/vehicles/' + it.value);
+    fillVehicle(full);
+  });
+  makeC.addEventListener('change', async () => modelC.setItems(modelItems(await models(makeC.value))));
+  const applyType = () => {
+    const t = L.types.find(x => x.id === typeC.value);
+    const sides = t?.sides ? t.sides.split(';') : null;
+    const cur = sideS.value;
+    clear(sideS, h('option', { value: '' }, '—'), Object.entries(E.side).filter(([k]) => !sides || sides.includes(k)).map(([k, l]) => h('option', { value: k }, l)));
+    sideS.value = cur;
+    sideS.closest('.field').style.display = sides || cur ? '' : 'none';
+    const g = L.groups.find(x => x.id === t?.group_id);
+    catReq.style.display = (t?.catalog_number_required ?? g?.catalog_number_required) ? '' : 'none';
+    partSet.style.display = t?.part_set_visible || p.part_set ? '' : 'none';
+    const engNo = form.querySelector('[data-eng-no]'); if (engNo) engNo.style.display = t?.engine_number_visible || p.engine_number ? '' : 'none';
+    clear(children);
+    if (isNew && t?.children?.length) {
+      children.append(h('div.sect', 'Pod-dijelovi kompleta (kreiraju se zajedno)'), h('div.chips', t.children.map(cid => {
+        const ct = L.types.find(x => x.id === cid); if (!ct) return null;
+        return h('label.check', h('input', { type: 'checkbox', 'data-child': cid, 'data-skip': '1' }), ct.title);
+      })));
+    }
+    // podaci sa vozila po pravilima vrste
+    if (vehC.value && t) {
+      const v = vItems.find(x => x.value === vehC.value)?.v;
+      if (v && (t.share_gearbox_data || g?.share_gearbox_data) && !F.gearbox_type.value) F.gearbox_type.value = v.gearbox_type || '';
+    }
+  };
+  typeC.addEventListener('change', applyType);
+
+  const save = async (next) => {
+    const d = formData(form);
+    if (d.engine_code) d.engine_code = d.engine_code.toUpperCase();
+    if (d.gearbox_code) d.gearbox_code = d.gearbox_code.toUpperCase();
+    if (d.catalog_number) d.catalog_number = d.catalog_number.toUpperCase().trim();
+    if (d.chassis_number) d.chassis_number = d.chassis_number.toUpperCase();
+    if (!d.catalog_number_damaged) d.catalog_number_damaged = false;
+    if (isNew) d.children = [...form.querySelectorAll('[data-child]:checked')].map(c => ({ type_id: c.dataset.child }));
+    if (isNew) {
+      const r = await run(() => POST('/api/parts', d));
+      if (next) {
+        const np = await GET('/api/parts/' + r.id);
+        lastCreated = np;
+        toast('Sačuvano: ' + np.internal_code);
+        // zadrži vozilo/marku/model/motor, očisti podatke o dijelu
+        for (const k of ['catalog_number', 'catalog_number_manufacturer', 'price', 'note']) { const el = form.querySelector(`[name=${k}]`); if (el) el.value = ''; }
+        form.querySelector('[name=catalog_number_damaged]').checked = false;
+        sideS.value = ''; typeC.value = ''; applyType();
+        renderLast();
+        typeC.input.focus();
+        window.scrollTo(0, 0);
+      } else go('/dijelovi/' + r.id);
+    } else {
+      await run(() => PUT('/api/parts/' + p.id, d), 'Sačuvano');
+      go('/dijelovi/' + p.id);
+    }
+  };
+  const lastBox = h('div');
+  const renderLast = () => {
+    if (!lastCreated) return clear(lastBox);
+    const fi = h('input', { type: 'file', accept: 'image/*', capture: 'environment', multiple: true, style: { display: 'none' } });
+    fi.onchange = () => run(() => uploadImages('SPARE_PART', lastCreated.id, [...fi.files]), 'Slike dodate');
+    clear(lastBox, h('div.card', { style: { background: 'var(--gl)' } }, h('div.row',
+      h('div.grow', 'Zadnji sačuvan: ', h('a', { href: '#/dijelovi/' + lastCreated.id }, h('span.code', lastCreated.internal_code), ' ', lastCreated.title)),
+      h('button', { onclick: () => fi.click() }, '📷 Slikaj'), h('button', { onclick: () => printLabels([{ code: lastCreated.internal_code, title: lastCreated.title, sub: lastCreated.location_code }]) }, '🏷 Etiketa'), fi)));
+  };
+
+  clear(form,
+    h('div.grid',
+      h('div.sect', 'Vozilo'),
+      field('Vozilo-donor', vehC, { wide: true }),
+      field('Marka', makeC, { req: true }), field('Model', modelC, { req: true, wide: true }), field('Godište', yearI),
+      h('div.sect', 'Dio'),
+      field('Vrsta dijela', typeC, { req: true, wide: true }), field('Strana', sideS),
+      h('label.field', h('span', 'Kataloški broj', catReq), catI),
+      h('div.field', h('span', ' '), check('catalog_number_damaged', p.catalog_number_damaged, 'Kat. broj nečitljiv/oštećen')),
+      field('Kat. broj proizvođača', input('catalog_number_manufacturer', p.catalog_number_manufacturer, { maxlength: 100 })),
+      field('Cijena', priceI), field('Valuta', select('currency_id', p.currency_id || L.currency, L.currencies.map(c => ({ value: c, label: c === 'BAM' ? 'KM (BAM)' : c })), { empty: false })),
+      h('div.field', h('span', ' '), h('div.row', partSet, check('damaged', p.damaged, 'Oštećen'))),
+      field('Napomena', textarea('note', p.note, { rows: 2 }), { full: true }),
+      children,
+      loc ? h('div.sect', 'Lokacija') : null,
+      loc ? field('Lokacija', loc) : null,
+      h('div.sect', 'Motor, mjenjač i ostalo'),
+      engineFields),
+    h('div.sticky-actions',
+      h('button', { type: 'button', onclick: () => history.back() }, 'Odustani'),
+      isNew ? h('button', { type: 'button', onclick: () => save(true) }, '💾 Sačuvaj + sljedeći') : null,
+      h('button.primary', { type: 'button', onclick: () => save(false) }, '💾 Sačuvaj')));
+  applyType();
+  return h('div', h('div.head', h('button.icon', { onclick: () => history.back() }, '←'), h('h1', isNew ? 'Novi dio' : 'Izmjena: ' + p.internal_code)), lastBox, form);
+}
