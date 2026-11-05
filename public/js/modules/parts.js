@@ -269,7 +269,10 @@ route('/dijelovi/:id', async ({ id }, query, main) => {
   };
   renderTab();
 
-  const demandBox = h('div');
+  const demandBox = h('div'), resBox = h('div');
+  if (!sold) GET(`/api/parts/${id}/shop-reservation`).then(r => {
+    if (r && r.order_ref) resBox.append(h('div.card', { style: { borderLeft: '5px solid var(--or)', background: 'var(--orl)' } }, h('b', '🛒 Rezervisan narudžbom sa webshopa: ' + r.order_ref), h('div.muted', 'Narudžba je u adminu webshopa. Prodajte ga tom kupcu ili otkažite narudžbu u webshopu.')));
+  }).catch(() => {});
   if (!sold) GET('/api/demand/for-part/' + id).then(ds => {
     if (!ds.length) return;
     clear(demandBox, h('div.card', { style: { borderLeft: '5px solid var(--ok)', background: 'var(--okl)' } },
@@ -278,7 +281,7 @@ route('/dijelovi/:id', async ({ id }, query, main) => {
         h('button.sm', { style: { marginLeft: '8px' }, onclick: () => run(() => PUT('/api/demand/' + d.id, { status: 'NOTIFIED', matched_part_id: id }), 'Označeno').then(reload) }, '📞 Javio sam')))));
   }).catch(() => {});
   return h('div',
-    demandBox,
+    resBox, demandBox,
     h('div.art-head', h('button.icon', { onclick: () => history.back() }, '←'), h('span.code', p.internal_code),
       h('div.ttl', h('h1', p.title), h('div.muted', [p.type_title, p.catalog_number ? 'Kat. br. ' + p.catalog_number : '', p.location_code ? '📍 ' + p.location_code : ''].filter(Boolean).join(' · '))),
       h('div', { style: { textAlign: 'right' } }, p.price ? h('div.price', fmtMoney(p.price, p.currency_id)) : null, statusBadge(p.status))),

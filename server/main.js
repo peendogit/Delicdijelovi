@@ -28,6 +28,7 @@ import './routes/demand.js';
 import './routes/sales.js';
 import './routes/share.js';
 import './routes/ocr.js';
+import './routes/shopapi.js';
 import { startScheduler } from './scheduler.js';
 
 const PORT = Number(process.env.PORT || 3010);
@@ -79,7 +80,7 @@ function serveStatic(req, res, urlPath) {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   try {
-    if (!url.pathname.startsWith('/api/') && !url.pathname.startsWith('/img/') && !url.pathname.startsWith('/p/')) return serveStatic(req, res, url.pathname);
+    if (!url.pathname.startsWith('/api/') && !url.pathname.startsWith('/img/') && !url.pathname.startsWith('/p/') && !url.pathname.startsWith('/shop-api/')) return serveStatic(req, res, url.pathname);
     const match = routes.match(req.method, url.pathname);
     if (!match) throw new HttpError(404, 'Nepoznata ruta');
     const cookies = parseCookies(req.headers.cookie);
