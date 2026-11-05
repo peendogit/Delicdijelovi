@@ -1,4 +1,4 @@
-import { h, clear, route, GET, qs, go, fmtMoney, fmtNum, fmtDate, input, select, field, loading, today, setQuery, tabs, badge, empty } from '../lib.js';
+import { h, clear, route, GET, qs, go, fmtMoney, fmtNum, fmtDate, input, select, field, loading, today, setQuery, tabs, badge, empty, lookups } from '../lib.js';
 
 function barChart(series, key, color, fmt = fmtNum) {
   if (!series.length) return h('div.empty', 'Nema podataka');
@@ -97,16 +97,49 @@ async function tabZaliha(q, box) {
 }
 
 async function tabPotraznja(q, box) {
-  const d = await GET('/api/analytics/demand?' + qs({ months: q.months || 12 }));
-  const cols = [{ l: 'Vrsta', f: r => h('span', h('b', r.title), h('div.muted', r.grp)) }, { l: 'Prodato', n: 1, f: r => fmtNum(r.sold) }, { l: 'Promet', n: 1, f: r => fmtMoney(r.revenue) },
-    { l: 'Na stanju', n: 1, f: r => fmtNum(r.stock) }, { l: 'Zalihe za', n: 1, f: r => (r.months_of_stock == null ? '—' : r.months_of_stock + ' mj.') }, { l: 'Prodaje se za', n: 1, f: r => (r.days_to_sell != null ? r.days_to_sell + ' dana' : '—') }];
-  const openType = r => go('/dijelovi?type_id=' + r.id);
+  const L = await lookups();
+  const months = q.months || 12;
+  const d = await GET('/api/analytics/demand?' + qs({ months, make_id: q.make_id }));
+  const stockCell = r => (r.stock === 0 ? badge('NEMA', 'red') : fmtNum(r.stock));
+  const cols = [
+    { l: 'Dio', f: r => h('span', h('b', r.type), h('div.muted', r.grp)) },
+    { l: 'Vozilo (tačan model i godišta)', f: r => h('a', { href: '#', onclick: e => { e.preventDefault(); e.stopPropagation(); openModel(r.model_id); } }, r.model) },
+    { l: 'Prodato', n: 1, f: r => h('b', fmtNum(r.sold)) }, { l: 'Prosj. cijena', n: 1, f: r => (r.avg_price ? fmtMoney(r.avg_price) : '—') },
+    { l: 'Promet', n: 1, f: r => fmtMoney(r.revenue) }, { l: 'Na stanju', n: 1, f: stockCell },
+    { l: 'Prodaje se za', n: 1, f: r => (r.days_to_sell != null ? r.days_to_sell + ' d' : '—') }, { l: 'Zadnja prodaja', f: r => fmtDate(r.last_sold) }];
+  const openParts = r => go('/dijelovi?' + qs({ type_id: r.type_id, model_id: r.model_id, status: 'ALL' }));
+  const drill = h('div');
+  const openModel = async id => {
+    q.model = id; setQuery(q);
+    clear(drill, loading()); drill.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const m = await GET('/api/analytics/demand/model/' + id + '?' + qs({ months }));
+    clear(drill, h('div.card', { style: { borderLeft: '5px solid var(--or)' } },
+      h('div.row', h('h2.grow', { style: { margin: 0 } }, '🚗 ' + m.model), h('button.sm', { onclick: () => { q.model = ''; setQuery(q); clear(drill); } }, '✕ Zatvori')),
+      h('div.stats', { style: { marginTop: '10px' } }, st(fmtNum(m.totals.sold), `Prodatih dijelova (${months} mj.)`), st(fmtMoney(m.totals.revenue), 'Promet'), st(fmtNum(m.totals.stock), 'Dijelova na stanju'),
+        st(fmtNum(m.donors.length), 'Donora ovog modela', m.donors[0] ? h('div.muted', 'zadnji ' + fmtDate(m.donors[0].created_date)) : null)),
+      h('p.muted', 'Koji dijelovi se za ovaj model traže. Crveno NEMA = prodaje se, a trenutno nema na stanju.'),
+      table([{ l: 'Dio', f: r => h('span', h('b', r.type), h('div.muted', r.grp)) }, { l: `Prodato (${months} mj.)`, n: 1, f: r => h('b', fmtNum(r.sold)) }, { l: 'Prodato ukupno', n: 1, f: r => fmtNum(r.sold_all) },
+        { l: 'Promet', n: 1, f: r => fmtMoney(r.revenue) }, { l: 'Na stanju', n: 1, f: r => (r.stock === 0 && r.sold_all ? badge('NEMA', 'red') : fmtNum(r.stock)) }],
+        m.rows, r => go('/dijelovi?' + qs({ type_id: r.type_id, model_id: id, status: 'ALL' }))),
+      m.donors.length ? h('div', { style: { marginTop: '8px' } }, h('span.muted', 'Donori: '), h('span.chips', m.donors.map(v => h('a.chip', { href: '#/vozila/' + v.id }, v.internal_code + ' · ' + v.model_year)))) : null));
+  };
+  const mk = select('make_id', q.make_id, L.makes.filter(m => m.active).map(m => ({ value: m.id, label: m.name })), { placeholder: 'Sve marke' });
+  mk.onchange = () => { q.make_id = mk.value; q.model = ''; tabPotraznja(q, box); };
+  mk.style.maxWidth = '260px';
   clear(box,
-    card('🔥 Prodaje se, a malo ima — ovo nabavljati', h('p.muted', `Prodato u zadnjih ${d.months} mjeseci, a zaliha manja od godinu dana prodaje (ili je nema).`), table(cols, d.shortage, openType)),
-    card('🐢 Previše na stanju — ne nabavljati, razmisliti o akciji', h('p.muted', 'Zaliha veća od 10 godina prodaje (ili se uopšte ne prodaje).'), table(cols, d.overstock, openType)),
-    h('div.grid2',
-      card('⚡ Najbrže se prodaju (od unosa do prodaje)', table([{ l: 'Vrsta', k: 'title' }, { l: 'Prodato', n: 1, k: 'sold' }, { l: 'Dana', n: 1, k: 'days_to_sell' }], d.fastest, openType)),
-      card('🚗 Modeli koji donose najviše (dijelovi)', table([{ l: 'Model', k: 'title' }, { l: 'Prodato', n: 1, k: 'sold' }, { l: 'Promet', n: 1, f: r => fmtMoney(r.revenue) }, { l: 'Prosj.', n: 1, f: r => fmtMoney(r.avg_price) }, { l: 'Na stanju', n: 1, k: 'stock' }], d.models))));
+    h('div.card', h('div.row', h('b', 'Marka:'), mk, h('span.muted', 'Sve je po tačnom modelu (generacija i godišta), npr. „Mercedes ML W164 (05-08)”. Klik na red otvara dijelove, klik na model otvara pregled modela.'))),
+    drill,
+    card('🚗 Najtraženija vozila — za koje modele se najviše prodaje dijelova',
+      table([{ l: 'Vozilo (tačan model)', f: r => h('b', r.model) }, { l: 'Prodatih dijelova', n: 1, f: r => h('b', fmtNum(r.sold)) }, { l: 'Promet', n: 1, f: r => fmtMoney(r.revenue) },
+        { l: 'Vrsta dijelova traženo', n: 1, k: 'types' }, { l: 'Od toga fali', n: 1, f: r => (r.missing ? badge(r.missing + ' vrsta', 'orange') : '0') }, { l: 'Na stanju', n: 1, f: r => fmtNum(r.stock) },
+        { l: 'Donora imali', n: 1, f: r => r.donors + (r.last_donor ? ' (zadnji ' + fmtDate(r.last_donor).slice(3) + ')' : '') }], d.models, r => openModel(r.model_id)),
+      h('p.muted', '„Od toga fali” = broj vrsta dijelova koje se za taj model prodaju, a zaliha ne pokriva ni godinu dana. Visok promet + puno vrsta koje fale + nema skorijeg donora = dobro vozilo za otkup.')),
+    card('🔥 Ovo nabavljati — dio za tačan model koji se prodaje, a nema ga (ili ga je malo)', h('p.muted', `Bar 2 prodaje u zadnjih ${months} mj., a zaliha manja od godinu dana prodaje. Prvo su oni kojih uopšte nema.`), table(cols, d.shortage, openParts)),
+    card('⚡ Najbrže se prodaju (od unosa do prodaje)', table(cols, d.fastest, openParts)),
+    card('🐢 Previše na stanju za taj model', h('p.muted', 'Bar 8 komada za isti model, a prodaja ne bi potrošila ni za 5 godina.'),
+      table([{ l: 'Dio', f: r => h('span', h('b', r.type), h('div.muted', r.grp)) }, { l: 'Vozilo', k: 'model' }, { l: 'Na stanju', n: 1, f: r => fmtNum(r.stock) }, { l: 'Prodato', n: 1, k: 'sold' },
+        { l: 'Zalihe za', n: 1, f: r => (r.months_of_stock == null ? 'ne prodaje se' : Math.round(r.months_of_stock / 12) + ' god.') }], d.overstock, openParts)));
+  if (q.model) openModel(q.model);
 }
 
 async function tabVozila(q, box) {
@@ -136,7 +169,7 @@ async function tabRadnici(q, box) {
 
 route('/analitika', async (params, query, main) => {
   const t = today();
-  const q = { tab: query.tab || 'pregled', from: query.from || t.slice(0, 8) + '01', to: query.to || t, group: query.group || 'day', months: query.months || '12' };
+  const q = { tab: query.tab || 'pregled', from: query.from || t.slice(0, 8) + '01', to: query.to || t, group: query.group || 'day', months: query.months || '12', make_id: query.make_id || '', model: query.model || '' };
   const body = h('div'); const tabBox = h('div'); const filt = h('div');
   const TABS = [['pregled', '📈 Pregled'], ['zaliha', '📦 Zaliha'], ['potraznja', '🎯 Šta nabaviti'], ['vozila', '🚗 Vozila'], ['radnici', '👷 Radnici']];
   const F = { pregled: tabPregled, zaliha: tabZaliha, potraznja: tabPotraznja, vozila: tabVozila, radnici: tabRadnici };

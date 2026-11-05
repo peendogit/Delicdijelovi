@@ -119,26 +119,74 @@ app.get('/api/analytics/stock', ctx => {
   return { buckets, groups, oldest_valuable, cohorts, warehouses, no_loc, empty_locations };
 });
 
-// Potražnja: šta se prodaje a nema na stanju, šta stoji previše, brzina prodaje, koje modele kupovati
+// Potražnja na nivou TAČNOG modela (generacija + godišta), npr. "ZADNJI MOST — Mercedes ML W164 (05-08)"
+function demandData(months, makeId) {
+  const since = `date('now', '-${months} months')`;
+  const mk = makeId ? ' AND p.make_id=?' : '';
+  const prm = makeId ? [makeId] : [];
+  const sales = all(`SELECT p.type_id, p.model_id, count(*) sold, sum(h.the_price) revenue, round(avg(NULLIF(h.the_price,0))) avg_price,
+      round(avg(julianday(h.created_date) - julianday(p.created_date))) days_to_sell, max(h.created_date) last_sold
+    FROM spare_part_sale_history h JOIN spare_part p ON p.id=h.part_id WHERE h.status='SOLD' AND h.created_date >= ${since}${mk} GROUP BY p.type_id, p.model_id`, ...prm);
+  const stock = all(`SELECT p.type_id, p.model_id, count(*) n FROM spare_part p WHERE p.active=1 AND p.status='UNSOLD'${mk} GROUP BY p.type_id, p.model_id`, ...prm);
+  const st = new Map(stock.map(r => [r.type_id + '|' + r.model_id, r.n]));
+  const types = new Map(all('SELECT t.id, t.title, g.title grp FROM spare_part_type t LEFT JOIN spare_part_group g ON g.id=t.group_id').map(t => [t.id, t]));
+  const ml = new Map();
+  const label = id => { if (!ml.has(id)) ml.set(id, modelLabelById(id)); return ml.get(id); };
+  const rows = sales.map(r => {
+    const n = st.get(r.type_id + '|' + r.model_id) || 0;
+    return { ...r, stock: n, type: types.get(r.type_id)?.title || '?', grp: types.get(r.type_id)?.grp || '', model: label(r.model_id),
+      months_of_stock: Math.round((n / (r.sold / months)) * 10) / 10 };
+  });
+  return { rows, stock, sales, types, label, st };
+}
+
 app.get('/api/analytics/demand', ctx => {
   need(ctx.user, 'ROLE_ANL');
   const months = Math.min(Math.max(Number(ctx.query.months) || 12, 1), 60);
-  const since = `date('now', '-${months} months')`;
-  const types = all(`SELECT t.id, t.title, coalesce(g.title,'') grp,
-      (SELECT count(*) FROM spare_part_sale_history h JOIN spare_part p ON p.id=h.part_id WHERE p.type_id=t.id AND h.status='SOLD' AND h.created_date >= ${since}) sold,
-      (SELECT coalesce(sum(h.the_price),0) FROM spare_part_sale_history h JOIN spare_part p ON p.id=h.part_id WHERE p.type_id=t.id AND h.status='SOLD' AND h.created_date >= ${since}) revenue,
-      (SELECT round(avg(julianday(h.created_date) - julianday(p.created_date))) FROM spare_part_sale_history h JOIN spare_part p ON p.id=h.part_id WHERE p.type_id=t.id AND h.status='SOLD' AND h.created_date >= ${since}) days_to_sell,
-      (SELECT count(*) FROM spare_part p WHERE p.type_id=t.id AND p.active=1 AND p.status='UNSOLD') stock
-    FROM spare_part_type t LEFT JOIN spare_part_group g ON g.id=t.group_id WHERE t.active=1`).filter(r => r.sold || r.stock);
-  for (const r of types) r.months_of_stock = r.sold ? Math.round((r.stock / (r.sold / months)) * 10) / 10 : null;
-  const shortage = types.filter(r => r.sold >= 3 && r.months_of_stock !== null && r.months_of_stock < 12).sort((a, b) => b.revenue - a.revenue).slice(0, 40);
-  const overstock = types.filter(r => r.stock >= 30 && (r.months_of_stock === null || r.months_of_stock > 120)).sort((a, b) => b.stock - a.stock).slice(0, 40);
-  const fastest = types.filter(r => r.sold >= 5).sort((a, b) => a.days_to_sell - b.days_to_sell).slice(0, 20);
-  const models = all(`SELECT p.model_id, count(*) sold, sum(h.the_price) revenue, round(avg(h.the_price)) avg_price,
-      (SELECT count(*) FROM spare_part s WHERE s.model_id=p.model_id AND s.active=1 AND s.status='UNSOLD') stock
-    FROM spare_part_sale_history h JOIN spare_part p ON p.id=h.part_id WHERE h.status='SOLD' AND h.created_date >= ${since} GROUP BY p.model_id ORDER BY revenue DESC LIMIT 30`);
-  for (const m of models) m.title = modelLabelById(m.model_id);
+  const { rows, stock, sales, types, label } = demandData(months, ctx.query.make_id || null);
+  // traži se (bar 2 prodaje), a zaliha ne pokriva ni godinu prodaje
+  const shortage = rows.filter(r => r.sold >= 2 && r.months_of_stock < 12).sort((a, b) => (b.stock === 0) - (a.stock === 0) || b.revenue - a.revenue).slice(0, 80);
+  const fastest = rows.filter(r => r.sold >= 3).sort((a, b) => a.days_to_sell - b.days_to_sell).slice(0, 25);
+  // previše: puno na stanju za taj model, a skoro se ne prodaje
+  const soldMap = new Map(sales.map(r => [r.type_id + '|' + r.model_id, r.sold]));
+  const overstock = stock.filter(r => r.n >= 8).map(r => {
+    const sold = soldMap.get(r.type_id + '|' + r.model_id) || 0;
+    return { type_id: r.type_id, model_id: r.model_id, stock: r.n, sold, type: types.get(r.type_id)?.title || '?', grp: types.get(r.type_id)?.grp || '',
+      months_of_stock: sold ? Math.round((r.n / (sold / months)) * 10) / 10 : null };
+  }).filter(r => r.months_of_stock === null || r.months_of_stock > 60).sort((a, b) => b.stock - a.stock).slice(0, 60);
+  for (const r of overstock) r.model = label(r.model_id);
+  // najtraženija vozila (tačan model) — po broju prodatih dijelova
+  const byModel = new Map();
+  for (const r of rows) {
+    const m = byModel.get(r.model_id) || { model_id: r.model_id, model: r.model, sold: 0, revenue: 0, types: 0, missing: 0 };
+    m.sold += r.sold; m.revenue += r.revenue; m.types++; if (r.months_of_stock < 12) m.missing++;
+    byModel.set(r.model_id, m);
+  }
+  const stockByModel = new Map();
+  for (const r of stock) stockByModel.set(r.model_id, (stockByModel.get(r.model_id) || 0) + r.n);
+  const vehicles = new Map(all("SELECT model_id, count(*) n, max(created_date) last FROM vehicle WHERE active=1 GROUP BY model_id").map(v => [v.model_id, v]));
+  const models = [...byModel.values()].map(m => ({ ...m, stock: stockByModel.get(m.model_id) || 0, donors: vehicles.get(m.model_id)?.n || 0, last_donor: vehicles.get(m.model_id)?.last || null }))
+    .sort((a, b) => b.sold - a.sold).slice(0, 50);
   return { months, shortage, overstock, fastest, models };
+});
+
+// Jedan tačan model: koji dijelovi se za njega traže i šta ima na stanju
+app.get('/api/analytics/demand/model/:id', ctx => {
+  need(ctx.user, 'ROLE_ANL');
+  const months = Math.min(Math.max(Number(ctx.query.months) || 12, 1), 60);
+  const since = `date('now', '-${months} months')`;
+  const id = ctx.params.id;
+  const rows = all(`SELECT t.id type_id, t.title type, coalesce(g.title,'') grp,
+      (SELECT count(*) FROM spare_part_sale_history h JOIN spare_part p ON p.id=h.part_id WHERE p.model_id=? AND p.type_id=t.id AND h.status='SOLD' AND h.created_date >= ${since}) sold,
+      (SELECT coalesce(sum(h.the_price),0) FROM spare_part_sale_history h JOIN spare_part p ON p.id=h.part_id WHERE p.model_id=? AND p.type_id=t.id AND h.status='SOLD' AND h.created_date >= ${since}) revenue,
+      (SELECT count(*) FROM spare_part_sale_history h JOIN spare_part p ON p.id=h.part_id WHERE p.model_id=? AND p.type_id=t.id AND h.status='SOLD') sold_all,
+      (SELECT count(*) FROM spare_part p WHERE p.model_id=? AND p.type_id=t.id AND p.active=1 AND p.status='UNSOLD') stock
+    FROM spare_part_type t LEFT JOIN spare_part_group g ON g.id=t.group_id
+    WHERE t.id IN (SELECT DISTINCT type_id FROM spare_part WHERE model_id=?)`, id, id, id, id, id).filter(r => r.sold_all || r.stock);
+  rows.sort((a, b) => b.sold - a.sold || b.sold_all - a.sold_all);
+  const totals = { sold: rows.reduce((s, r) => s + r.sold, 0), revenue: rows.reduce((s, r) => s + r.revenue, 0), stock: rows.reduce((s, r) => s + r.stock, 0) };
+  const donors = all('SELECT id, internal_code, model_year, created_date, status FROM vehicle WHERE model_id=? AND active=1 ORDER BY created_date DESC', id);
+  return { model: modelLabelById(id), months, rows, totals, donors };
 });
 
 // Vozila-donori: zarada po vozilu i po modelu, brzina zarade
