@@ -232,3 +232,75 @@ app.get('/api/analytics/workers', ctx => {
     FROM spare_part p LEFT JOIN core_user u ON u.id=p.created_by_id WHERE p.created_date >= ? AND p.created_date < date(?, '+1 day') GROUP BY p.created_by_id ORDER BY n DESC`, from, to);
   return { from, to, req, entry, quality };
 });
+
+// ---------------------------------------------------------------------------
+// Ulaganja u vozila: nabavna cijena (vehicle.price) + dodatni troškovi, naspram zarade od dijelova i prodaje cijelih vozila
+// ---------------------------------------------------------------------------
+function vehicleMoney() {
+  const veh = all(`SELECT v.id, v.internal_code, v.model_id, v.model_year, v.created_date, v.status, coalesce(v.price,0) price FROM vehicle v WHERE v.active=1`);
+  const costs = all('SELECT vehicle_id, amount, cost_date d FROM app_vehicle_cost WHERE active=1');
+  // sve prodaje dijelova sa vozila (povrati umanjuju)
+  const sales = all(`SELECT p.vehicle_id, h.created_date d, CASE WHEN h.status='SOLD' THEN h.the_price ELSE -h.the_price END amt
+    FROM spare_part_sale_history h JOIN spare_part p ON p.id=h.part_id WHERE p.vehicle_id IS NOT NULL ORDER BY h.created_date`);
+  const whole = all('SELECT vehicle_id, created_date d, the_price amt FROM app_vehicle_sale ORDER BY created_date');
+  const V = new Map(veh.map(v => [v.id, { ...v, extra: 0, earned: 0, whole: 0, payback: null, flows: [] }]));
+  for (const c of costs) { const v = V.get(c.vehicle_id); if (v) v.extra += c.amount; }
+  for (const s of [...sales, ...whole.map(w => ({ ...w, whole: 1 }))].sort((a, b) => a.d.localeCompare(b.d))) {
+    const v = V.get(s.vehicle_id); if (!v) continue;
+    if (s.whole) v.whole += s.amt; else v.earned += s.amt;
+    v.flows.push(s);
+  }
+  for (const v of V.values()) {
+    v.invested = v.price + v.extra;
+    let cum = 0;
+    for (const f of v.flows) { cum += f.amt; if (v.invested > 0 && cum >= v.invested) { v.payback = f.d; break; } }
+    v.back = v.earned + v.whole;
+    v.profit = v.back - v.invested;
+    v.pct = v.invested ? Math.round((v.back / v.invested) * 100) : null;
+    v.payback_days = v.payback ? Math.round((new Date(v.payback.replace(' ', 'T')) - new Date(v.created_date.replace(' ', 'T'))) / 864e5) : null;
+  }
+  return { V, sales, whole, costs };
+}
+
+app.get('/api/analytics/investments', ctx => {
+  need(ctx.user, 'ROLE_ANL');
+  const to = ctx.query.to || today(), from = ctx.query.from || '2000-01-01';
+  const inP = d => d && d.slice(0, 10) >= from && d.slice(0, 10) <= to;
+  const { V, sales, whole, costs } = vehicleMoney();
+  const all_ = [...V.values()];
+  const bought = all_.filter(v => inP(v.created_date));
+  // novac u periodu (gotovinski tok): kupovine + troškovi u periodu, naspram prodaja u periodu
+  const period = {
+    vehicles: bought.length,
+    invested: bought.reduce((s, v) => s + v.price, 0) + costs.filter(c => inP(c.d)).reduce((s, c) => s + c.amount, 0),
+    earned_parts: sales.filter(s => inP(s.d)).reduce((s, x) => s + x.amt, 0),
+    earned_whole: whole.filter(s => inP(s.d)).reduce((s, x) => s + x.amt, 0),
+    no_price: bought.filter(v => !v.price).length,
+  };
+  period.avg = period.vehicles ? Math.round(bought.reduce((s, v) => s + v.invested, 0) / period.vehicles) : 0;
+  period.balance = period.earned_parts + period.earned_whole - period.invested;
+  // vozila kupljena u periodu: koliko su do danas vratila
+  const cohort = {
+    invested: bought.reduce((s, v) => s + v.invested, 0), back: bought.reduce((s, v) => s + v.back, 0),
+    paid_off: bought.filter(v => v.payback).length,
+    avg_payback_days: (() => { const p = bought.filter(v => v.payback_days != null); return p.length ? Math.round(p.reduce((s, v) => s + v.payback_days, 0) / p.length) : null; })(),
+  };
+  cohort.pct = cohort.invested ? Math.round((cohort.back / cohort.invested) * 100) : null;
+  // po godinama (sve vrijeme)
+  const years = {};
+  const Y = y => (years[y] ||= { year: y, vehicles: 0, invested: 0, cash_in: 0, cohort_back: 0, paid_off: 0 });
+  for (const v of all_) { const y = Y(v.created_date.slice(0, 4)); y.vehicles++; y.invested += v.invested; y.cohort_back += v.back; if (v.payback) y.paid_off++; }
+  for (const s of [...sales, ...whole]) Y(s.d.slice(0, 4)).cash_in += s.amt;
+  const yearRows = Object.values(years).sort((a, b) => b.year.localeCompare(a.year)).map(y => ({ ...y, pct: y.invested ? Math.round((y.cohort_back / y.invested) * 100) : null, balance: y.cash_in - y.invested }));
+  // po mjesecima u periodu
+  const months = {};
+  const M = m => (months[m] ||= { d: m, invested: 0, cash_in: 0 });
+  for (const v of bought) M(v.created_date.slice(0, 7)).invested += v.price;
+  for (const c of costs) if (inP(c.d)) M(c.d.slice(0, 7)).invested += c.amount;
+  for (const s of [...sales, ...whole]) if (inP(s.d)) M(s.d.slice(0, 7)).cash_in += s.amt;
+  const list = bought.sort((a, b) => b.created_date.localeCompare(a.created_date)).map(v => ({
+    id: v.id, internal_code: v.internal_code, title: modelLabelById(v.model_id), model_year: v.model_year, created_date: v.created_date, status: v.status,
+    price: v.price, extra: v.extra, invested: v.invested, earned: v.earned, whole: v.whole, back: v.back, profit: v.profit, pct: v.pct, payback: v.payback, payback_days: v.payback_days,
+  }));
+  return { from, to, period, cohort, years: yearRows, months: Object.values(months).sort((a, b) => a.d.localeCompare(b.d)), vehicles: list };
+});

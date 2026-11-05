@@ -50,6 +50,8 @@ db.exec(SCHEMA);
 // Dodatne tabele nove aplikacije
 db.exec(`
 CREATE TABLE IF NOT EXISTS app_olx_log (id INTEGER PRIMARY KEY AUTOINCREMENT, object_type TEXT, object_id TEXT, action TEXT, ok INTEGER, message TEXT, created_date TEXT);
+CREATE TABLE IF NOT EXISTS app_vehicle_cost (id TEXT PRIMARY KEY, vehicle_id TEXT, title TEXT, amount REAL, cost_date TEXT, note TEXT, created_by_id TEXT, created_date TEXT, active INTEGER DEFAULT 1);
+CREATE INDEX IF NOT EXISTS ix_vcost ON app_vehicle_cost(vehicle_id);
 CREATE TABLE IF NOT EXISTS app_vehicle_sale (id TEXT PRIMARY KEY, vehicle_id TEXT, the_price REAL, currency_id TEXT, note TEXT, status TEXT, created_by_id TEXT, created_date TEXT);
 `);
 

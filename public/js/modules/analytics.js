@@ -78,6 +78,37 @@ async function tabPregled(q, box) {
     card('Najisplativija vozila u periodu', d.top_vehicles.length ? d.top_vehicles.map(v => h('div.bar-row', { style: { cursor: 'pointer' }, onclick: () => go('/vozila/' + v.id) }, h('span', v.internal_code + ' · ' + v.title + ' ' + v.model_year), h('b', fmtMoney(v.revenue)), h('div.muted', { style: { gridColumn: '1/-1' } }, v.n + ' dijelova'))) : empty()));
 }
 
+async function tabUlaganja(q, box) {
+  const d = await GET('/api/analytics/investments?' + qs({ from: q.from, to: q.to }));
+  const p = d.period, c = d.cohort;
+  const money = v => h('span', { style: { color: v >= 0 ? 'var(--ok)' : 'var(--red)', fontWeight: 700 } }, (v > 0 ? '+' : '') + fmtMoney(v));
+  const pctB = v => (v == null ? '—' : badge(v + '%', v >= 100 ? 'green' : v >= 60 ? 'orange' : 'red'));
+  const open = r => go('/vozila/' + r.id);
+  clear(box,
+    h('p.muted', `Period: ${fmtDate(d.from)} – ${fmtDate(d.to)}. Uloženo = nabavna cijena vozila (polje „Nabavna cijena” na vozilu) + dodatni troškovi upisani na vozilu (šlep, carina…). Za sve vrijeme izaberite „Sve”.`),
+    h('div.stats',
+      st(fmtNum(p.vehicles), 'Kupljeno vozila', p.no_price ? h('div.muted', p.no_price + ' bez upisane cijene') : null),
+      st(fmtMoney(p.invested), 'Uloženo u periodu'), st(fmtMoney(p.avg), 'Prosječno po vozilu'),
+      st(fmtMoney(p.earned_parts), 'Zarađeno od dijelova u periodu', h('div.muted', 'sa svih vozila')),
+      p.earned_whole ? st(fmtMoney(p.earned_whole), 'Prodaja cijelih vozila') : null,
+      st(money(p.balance), 'Razlika u periodu', h('div.muted', 'zarađeno − uloženo'))),
+    card('Vozila kupljena u ovom periodu — koliko su do danas vratila',
+      h('div.stats', st(fmtMoney(c.invested), 'Uloženo u njih'), st(fmtMoney(c.back), 'Do sada vratila'), st(pctB(c.pct), 'Povrat'),
+        st(`${c.paid_off} / ${p.vehicles}`, 'Isplatilo se'), st(c.avg_payback_days != null ? Math.round(c.avg_payback_days / 30) + ' mj.' : '—', 'Prosječno do isplate'))),
+    card('Po godinama (sve vrijeme)', table([
+      { l: 'Godina', f: r => h('b', r.year) }, { l: 'Kupljeno vozila', n: 1, k: 'vehicles' }, { l: 'Uloženo', n: 1, f: r => fmtMoney(r.invested) },
+      { l: 'Ta vozila do sada vratila', n: 1, f: r => fmtMoney(r.cohort_back) }, { l: 'Povrat', n: 1, f: r => pctB(r.pct) }, { l: 'Isplatilo se', n: 1, f: r => r.paid_off + '/' + r.vehicles },
+      { l: 'Zarada od dijelova te godine', n: 1, f: r => fmtMoney(r.cash_in) }, { l: 'Zarada − ulaganje te godine', n: 1, f: r => money(r.balance) }], d.years),
+      h('p.muted', '„Ta vozila do sada vratila” prati vozila kupljena te godine (i njihove dijelove prodate kasnije). „Zarada od dijelova te godine” je sav novac od dijelova koji je ušao te godine.')),
+    card('Uloženo i zarađeno po mjesecima', barChart(d.months.map(m => ({ d: m.d, v: m.invested })), 'v', '#c62828', v => fmtMoney(v)), barChart(d.months.map(m => ({ d: m.d, v: m.cash_in })), 'v', '#1e7f3c', v => fmtMoney(v)),
+      h('p.muted', 'Crveno = uloženo (kupovina vozila + troškovi), zeleno = zarađeno od dijelova.')),
+    card('Vozila kupljena u periodu', table([
+      { l: 'Vozilo', f: r => h('span', h('b', r.internal_code + ' · ' + r.title + ' ' + r.model_year), h('div.muted', 'kupljeno ' + fmtDate(r.created_date))) },
+      { l: 'Uloženo', n: 1, f: r => (r.invested ? fmtMoney(r.invested) : h('span.muted', 'nije upisano')) }, { l: 'Vratilo', n: 1, f: r => fmtMoney(r.back) },
+      { l: 'Razlika', n: 1, f: r => money(r.profit) }, { l: 'Povrat', n: 1, f: r => pctB(r.pct) },
+      { l: 'Isplatilo se', f: r => (r.payback ? `${fmtDate(r.payback)} (${Math.round(r.payback_days / 30)} mj.)` : h('span.muted', 'još ne')) }], d.vehicles, open)));
+}
+
 async function tabZaliha(q, box) {
   const d = await GET('/api/analytics/stock');
   const tot = d.buckets.reduce((s, b) => s + b.n, 0);
@@ -171,12 +202,12 @@ route('/analitika', async (params, query, main) => {
   const t = today();
   const q = { tab: query.tab || 'pregled', from: query.from || t.slice(0, 8) + '01', to: query.to || t, group: query.group || 'day', months: query.months || '12', make_id: query.make_id || '', model: query.model || '' };
   const body = h('div'); const tabBox = h('div'); const filt = h('div');
-  const TABS = [['pregled', '📈 Pregled'], ['zaliha', '📦 Zaliha'], ['potraznja', '🎯 Šta nabaviti'], ['vozila', '🚗 Vozila'], ['radnici', '👷 Radnici']];
-  const F = { pregled: tabPregled, zaliha: tabZaliha, potraznja: tabPotraznja, vozila: tabVozila, radnici: tabRadnici };
+  const TABS = [['pregled', '📈 Pregled'], ['ulaganja', '💰 Ulaganja'], ['zaliha', '📦 Zaliha'], ['potraznja', '🎯 Šta nabaviti'], ['vozila', '🚗 Vozila'], ['radnici', '👷 Radnici']];
+  const F = { ulaganja: tabUlaganja, pregled: tabPregled, zaliha: tabZaliha, potraznja: tabPotraznja, vozila: tabVozila, radnici: tabRadnici };
   const load = async () => {
     setQuery(q);
     clear(tabBox, tabs(TABS, q.tab, k => { q.tab = k; load(); }));
-    filt.style.display = ['pregled', 'radnici', 'potraznja'].includes(q.tab) ? '' : 'none';
+    filt.style.display = ['pregled', 'radnici', 'potraznja', 'ulaganja'].includes(q.tab) ? '' : 'none';
     per.style.display = q.tab === 'potraznja' ? 'none' : ''; mon.style.display = q.tab === 'potraznja' ? '' : 'none';
     clear(body, loading());
     try { await F[q.tab](q, body); } catch (e) { clear(body, h('div.card', e.message)); }

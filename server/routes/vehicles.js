@@ -46,6 +46,10 @@ function detail(id) {
   v.stats = get(`SELECT count(*) total, sum(status='UNSOLD') unsold, sum(status='SOLD') sold,
       sum(CASE WHEN status='UNSOLD' THEN coalesce(price,0) END) unsold_value FROM spare_part WHERE vehicle_id=? AND active=1`, id);
   v.stats.earned = get(`SELECT coalesce(sum(CASE WHEN h.status='SOLD' THEN h.the_price ELSE -h.the_price END),0) s FROM spare_part_sale_history h JOIN spare_part p ON p.id=h.part_id WHERE p.vehicle_id=?`, id).s;
+  v.costs = all('SELECT c.*, u.full_name user_name FROM app_vehicle_cost c LEFT JOIN core_user u ON u.id=c.created_by_id WHERE c.vehicle_id=? AND c.active=1 ORDER BY c.cost_date', id);
+  v.stats.sold_whole = get('SELECT coalesce(sum(the_price),0) s FROM app_vehicle_sale WHERE vehicle_id=?', id).s;
+  v.stats.invested = (v.price || 0) + v.costs.reduce((s, c) => s + (c.amount || 0), 0);
+  v.stats.profit = v.stats.earned + v.stats.sold_whole - v.stats.invested;
   v.rims = all('SELECT id, internal_code, status, price FROM rims WHERE vehicle_id=? AND active=1', id);
   v.sales = all('SELECT s.*, u.full_name user_name FROM app_vehicle_sale s LEFT JOIN core_user u ON u.id=s.created_by_id WHERE vehicle_id=? ORDER BY created_date DESC', id);
   return v;
@@ -98,4 +102,18 @@ app.post('/api/vehicles/:id/sell', ctx => {
   insert('app_vehicle_sale', { id: uuid(), vehicle_id: v.id, the_price: Number(ctx.body.price ?? v.price ?? 0), currency_id: v.currency_id || 'BAM', note: ctx.body.note || null, status: 'SOLD', created_by_id: ctx.user.id, created_date: now() });
   run("UPDATE vehicle SET status='SOLD', modified_by_id=?, modified_date=? WHERE id=?", ctx.user.id, now(), v.id);
   return detail(v.id);
+});
+
+// Dodatni troškovi vozila (šlep, carina, transport, popravka…)
+app.post('/api/vehicles/:id/costs', ctx => {
+  need(ctx.user, 'ROLE_VEH_U');
+  const amount = Number(ctx.body.amount);
+  if (!ctx.body.title || !(amount > 0)) throw bad('Unesite opis i iznos');
+  insert('app_vehicle_cost', { id: uuid(), vehicle_id: ctx.params.id, title: ctx.body.title, amount, cost_date: ctx.body.cost_date || now().slice(0, 10), note: ctx.body.note || null, created_by_id: ctx.user.id, created_date: now(), active: 1 });
+  return detail(ctx.params.id);
+});
+app.del('/api/vehicles/:id/costs/:cid', ctx => {
+  need(ctx.user, 'ROLE_VEH_U');
+  run('UPDATE app_vehicle_cost SET active=0 WHERE id=? AND vehicle_id=?', ctx.params.cid, ctx.params.id);
+  return detail(ctx.params.id);
 });

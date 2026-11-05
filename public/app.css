@@ -241,3 +241,4 @@ button.round.sm { width: 36px; height: 36px; font-size: 15px; }
   .fab .fab-lb { display: none; } .fab .fab-plus { font-size: 30px; font-weight: 400; }
 }
 .gal-ov.bl .muted:empty { display: none; }
+.tbl td.n { white-space: nowrap; }

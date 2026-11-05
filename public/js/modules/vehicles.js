@@ -1,4 +1,4 @@
-import { h, clear, route, GET, POST, PUT, DEL, qs, go, can, lookups, models, E, img, fmtDT, fmtMoney, field, input, textarea, select, combo, formData, modal, confirmBox, toast, run, gallery, kv, badge, pager, tabs, loading, empty, setQuery , refresh, toolbarN, fab } from '../lib.js';
+import { h, clear, route, GET, POST, PUT, DEL, qs, go, can, lookups, models, E, img, fmtDT, fmtDate, fmtMoney, field, input, textarea, select, combo, formData, modal, confirmBox, toast, run, gallery, kv, badge, pager, tabs, loading, empty, setQuery , refresh, toolbarN, fab } from '../lib.js';
 import { makeItems, modelItems, partItem } from './parts.js';
 
 const vBadge = s => badge(E.vstatus[s] || s, s === 'COMPLETE' ? 'blue' : s === 'SOLD' ? 'red' : 'green');
@@ -49,7 +49,7 @@ route('/vozila/:id', async ({ id }) => {
     ['Broj motora', v.engine_number], ['Mjenjač', [E.gearbox[v.gearbox_type], v.gearbox_speed ? v.gearbox_speed + ' br.' : '', v.gearbox_code].filter(Boolean).join(' · ')],
     ['Pogon', E.drive[v.drive_train]], ['Karoserija', E.body[v.the_type]], ['Boja', v.color],
     ['Felne', [v.rims_type_title, v.rims_diameter_title, v.rims_width_title, v.rims_pattern_title, v.rims_offSet ? 'ET' + v.rims_offSet : '', v.rims_center_hole ? 'CB ' + v.rims_center_hole : ''].filter(Boolean).join(' ')],
-    ['Cijena', v.price ? fmtMoney(v.price, v.currency_id) : null], ['Napomena', v.note],
+    ['Nabavna cijena', v.price ? fmtMoney(v.price, v.currency_id) : h('span.muted', 'nije upisana')], ['Napomena', v.note],
     ['YouTube', v.youtube_url ? h('a', { href: v.youtube_url, target: '_blank' }, 'video') : null],
     ['OLX', v.external_olx_id ? h('a', { href: 'https://olx.ba/artikal/' + v.external_olx_id, target: '_blank' }, v.external_olx_id) : null],
     ['Unio', (v.created_by_name || '') + ' · ' + fmtDT(v.created_date)],
@@ -69,7 +69,21 @@ route('/vozila/:id', async ({ id }) => {
     h('div.stats',
       h('div.stat', h('b', v.stats.total || 0), h('span', 'Dijelova ukupno')), h('div.stat', h('b', v.stats.unsold || 0), h('span', 'Na stanju')),
       h('div.stat', h('b', v.stats.sold || 0), h('span', 'Prodato')), h('div.stat', h('b', fmtMoney(v.stats.earned || 0)), h('span', 'Zarađeno od dijelova')),
-      h('div.stat', h('b', fmtMoney(v.stats.unsold_value || 0)), h('span', 'Vrijednost na stanju'))),
+      h('div.stat', h('b', fmtMoney(v.stats.unsold_value || 0)), h('span', 'Vrijednost na stanju')),
+      h('div.stat', h('b', fmtMoney(v.stats.invested || 0)), h('span', 'Uloženo (nabavka + troškovi)')),
+      h('div.stat', { style: { borderLeftColor: v.stats.profit >= 0 ? 'var(--ok)' : 'var(--red)' } }, h('b', { style: { color: v.stats.profit >= 0 ? 'var(--ok)' : 'var(--red)' } }, (v.stats.profit >= 0 ? '+' : '') + fmtMoney(v.stats.profit || 0)),
+        h('span', v.stats.profit >= 0 ? 'Zarada iznad uloženog' : 'Još do isplate'), v.stats.invested ? h('div.muted', Math.round(((v.stats.earned + v.stats.sold_whole) / v.stats.invested) * 100) + '% vraćeno') : null)),
+    h('div.card', h('h2', 'Troškovi vozila'),
+      h('table.tbl', h('tbody',
+        h('tr', h('td', 'Nabavna cijena'), h('td.muted', fmtDate(v.created_date)), h('td.n', h('b', fmtMoney(v.price || 0))), h('td', '')),
+        v.costs.map(c => h('tr', h('td', c.title, c.note ? h('div.muted', c.note) : null), h('td.muted', fmtDate(c.cost_date)), h('td.n', fmtMoney(c.amount)),
+          h('td', can('ROLE_VEH_U') ? h('button.sm.danger', { onclick: async () => { if (await confirmBox('Obrisati trošak „' + c.title + '”?')) { await run(() => DEL(`/api/vehicles/${id}/costs/${c.id}`)); reload(); } } }, '🗑') : '')))),
+        h('tr', h('td', h('b', 'Ukupno uloženo')), h('td', ''), h('td.n', h('b', fmtMoney(v.stats.invested || 0))), h('td', ''))),
+      can('ROLE_VEH_U') ? h('button', { style: { marginTop: '8px' }, onclick: async () => {
+        const t = input('title', '', { placeholder: 'npr. Šlep, Carina, Transport, Popravka' }); const a = input('amount', '', { type: 'number', step: '0.01', inputmode: 'decimal' });
+        const d = input('cost_date', new Date().toISOString().slice(0, 10), { type: 'date' }); const n = input('note', '');
+        if (await modal('Novi trošak — ' + v.internal_code, [field('Opis', t), field('Iznos (KM)', a), field('Datum', d), field('Napomena', n)], [{ label: 'Odustani' }, { label: 'Dodaj', primary: true, onClick: () => POST(`/api/vehicles/${id}/costs`, { title: t.value, amount: a.value, cost_date: d.value, note: n.value }) }])) reload();
+      } }, '+ Dodaj trošak') : null),
     h('div.grid2', h('div.card', gallery(v.images, { type: 'VEHICLE', objectId: id, canEdit: can('ROLE_VEH_U', 'ROLE_VEH_C', 'ROLE_USR_LIB_UP'), onChange: reload })), h('div.card', info)),
     v.rims.length ? h('div.card', h('h2', 'Felne sa vozila'), h('div.chips', v.rims.map(r => h('a.chip', { href: '#/felne/' + r.id }, r.internal_code + ' ' + (r.status === 'SOLD' ? '(prodate)' : ''))))) : null,
     h('div.card.p0', h('div', { style: { padding: '12px 14px 0' } }, h('h2', 'Dijelovi')), partsBox));
@@ -102,7 +116,7 @@ async function vehicleForm(v) {
     field('Širina', select('rims_width_id', v.rims_width_id, opt(L.rims_widths))), field('Raspon šarafa', select('rims_pattern_id', v.rims_pattern_id, opt(L.rims_patterns))),
     field('ET', I('rims_offSet', { maxlength: 10 })), field('Centralna rupa', I('rims_center_hole', { type: 'number', step: '0.1' })),
     h('div.sect', 'Prodaja i ostalo'),
-    field('Cijena', I('price', { type: 'number', step: '0.01' })), field('Valuta', select('currency_id', v.currency_id || L.currency, L.currencies.map(c => ({ value: c, label: c })), { empty: false })),
+    field('Nabavna cijena (plaćeno za vozilo)', I('price', { type: 'number', step: '0.01', inputmode: 'decimal' })), field('Valuta', select('currency_id', v.currency_id || L.currency, L.currencies.map(c => ({ value: c, label: c })), { empty: false })),
     field('YouTube link', I('youtube_url'), { wide: true }), field('Napomena', textarea('note', v.note), { full: true }),
     !isNew ? h('label.check.full', h('input', { type: 'checkbox', name: 'propagate', checked: true }), 'Promjenu marke/modela/godišta primijeni i na dijelove ovog vozila') : null),
     h('div.sticky-actions', h('button', { type: 'button', onclick: () => history.back() }, 'Odustani'),
