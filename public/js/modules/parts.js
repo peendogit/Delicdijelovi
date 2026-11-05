@@ -1,6 +1,6 @@
 import {
   h, clear, route, GET, POST, PUT, DEL, qs, go, can, state, lookups, models, E, img, fmtDT, fmtDate, fmtMoney, field, input, textarea, select, check, combo,
-  locationInput, formData, modal, confirmBox, toast, run, gallery, kv, badge, statusBadge, reqBadge, pager, tabs, loading, empty, setQuery, printLabels, uploadImages, refresh, toolbar, fab,
+  locationInput, formData, modal, confirmBox, toast, run, gallery, kv, badge, statusBadge, reqBadge, pager, tabs, loading, empty, setQuery, printLabels, uploadImages, refresh, toolbar, fab, readCatalogFromPhoto,
 } from '../lib.js';
 
 export const typeItems = L => L.types.filter(t => t.active).map(t => ({ value: t.id, label: t.title, sub: L.groups.find(g => g.id === t.group_id)?.title }));
@@ -47,11 +47,16 @@ route('/dijelovi', async (params, query, main) => {
   const updBulk = () => {
     bulk.style.display = selected.size ? 'block' : 'none';
     clear(bulk, h('div.row', h('b.grow', `Izabrano: ${selected.size}`),
-      can('ROLE_REQ_C') ? h('button.primary', { onclick: () => reqDialog([...selected]).then(ok => { if (ok) { selected.clear(); updBulk(); load(); } }) }, '📋 Nalog') : null,
+      can('ROLE_SP_SALE') ? h('button.primary', { onclick: async () => {
+        const rows = await Promise.all([...selected].map(id => GET('/api/parts/' + id)));
+        const { saleDialog } = await import('./sales.js');
+        if (await saleDialog(rows.map(p => ({ kind: 'part', id: p.id, code: p.internal_code, title: p.title, price: p.price ?? '' })))) { selected.clear(); updBulk(); load(); }
+      } }, '💰 Prodaj izabrane') : null,
+      can('ROLE_REQ_C') ? h('button', { onclick: () => reqDialog([...selected]).then(ok => { if (ok) { selected.clear(); updBulk(); load(); } }) }, '📋 Nalog') : null,
       h('button', { onclick: async () => { const rows = await Promise.all([...selected].map(id => GET('/api/parts/' + id))); printLabels(rows.map(p => ({ code: p.internal_code, title: p.title, sub: p.location_code }))); } }, '🏷 Etikete'),
       h('button', { onclick: () => { selected.clear(); updBulk(); load(); } }, 'Poništi')));
   };
-  const cb = p => (can('ROLE_REQ_C') && p.status === 'UNSOLD' ? h('input', { type: 'checkbox', checked: selected.has(p.id), onclick: e => e.stopPropagation(), onchange: e => { e.target.checked ? selected.add(p.id) : selected.delete(p.id); updBulk(); } }) : null);
+  const cb = p => (can('ROLE_REQ_C', 'ROLE_SP_SALE') && p.status === 'UNSOLD' ? h('input', { type: 'checkbox', checked: selected.has(p.id), onclick: e => e.stopPropagation(), onchange: e => { e.target.checked ? selected.add(p.id) : selected.delete(p.id); updBulk(); } }) : null);
 
   // Stablo: grupe → vrste, sa brojem dijelova za trenutni izbor vozila/filtere
   const drawTree = facets => {
@@ -91,7 +96,7 @@ route('/dijelovi', async (params, query, main) => {
         h('div.only-wide.scroll-x', h('table.tbl', h('thead', h('tr', h('th', ''), h('th', 'Slika'), h('th', 'Šifra'), h('th', 'Naziv artikla'), h('th', 'Kataloški br.'), h('th', 'Strana'), h('th', 'Lokacija'), h('th', 'Donor'), h('th.n', 'Cijena'))),
           h('tbody', d.rows.map(p => partRow(p, cb(p)))))),
         h('div.only-narrow', h('div.list', d.rows.map(p => partItem(p, { check: cb(p) })))),
-      ] : empty('Nema dijelova za zadate uslove'),
+      ] : h('div', empty('Nema dijelova za zadate uslove'), h('div', { style: { textAlign: 'center', paddingBottom: '16px' } }, h('button', { onclick: async () => { const { demandDialog } = await import('./demand.js'); demandDialog({ make_id: q.make_id, model_id: q.model_id, type_id: q.type_id, catalog_number: q.q }); } }, '📝 Kupac je tražio — zapiši'))),
       pager(d.total, q.offset, LIMIT, off => { q.offset = off; load(); window.scrollTo(0, 0); }));
   };
   let lastFacets = [];
@@ -164,20 +169,20 @@ export async function moveDialog(kind, id) {
   }]);
 }
 export async function sellDialog(kind, it) {
-  const price = input('price', it.price ?? '', { type: 'number', step: '0.01', inputmode: 'decimal' });
-  const note = textarea('note', '', { placeholder: 'Napomena (kupac, račun…)' });
-  const kids = kind === 'parts' && it.children?.some(c => c.status === 'UNSOLD' && !c.parent_detached) ? check('with_children', true, 'Prodaj i dijelove kompleta') : null;
-  return modal('Prodaja: ' + it.internal_code, [field('Prodajna cijena (KM)', price), kids, note], [{ label: 'Odustani' }, {
-    label: '💰 Prodaj', primary: true,
-    onClick: async () => { await POST(`/api/${kind}/${it.id}/sell`, { price: price.value, note: note.value, with_children: kids?.querySelector('input').checked }); toast('Prodato'); },
-  }]);
+  const { saleDialog } = await import('./sales.js');
+  const k = kind === 'rims' ? 'rims' : 'part';
+  const items = [{ kind: k, id: it.id, code: it.internal_code, title: it.title, price: it.price ?? '' }];
+  if (k === 'part') for (const c of it.children || []) if (c.status === 'UNSOLD' && !c.parent_detached) items.push({ kind: 'part', id: c.id, code: c.internal_code, title: c.title + ' (iz kompleta)', price: 0 });
+  return saleDialog(items);
 }
 export async function returnDialog(kind, it) {
   const last = it.sale_history?.find(s => s.status === 'SOLD');
   const price = input('price', last?.the_price ?? '', { type: 'number', step: '0.01' });
   const note = textarea('note', '', { placeholder: 'Razlog povrata' });
   const loc = locationInput();
-  return modal('Povrat: ' + it.internal_code, [field('Vraćeni iznos (KM)', price), field('Lokacija (prazno = pult/povrat)', loc), note], [{ label: 'Odustani' }, {
+  const { warrantyInfo } = await import('./sales.js');
+  const war = await warrantyInfo(kind === 'rims' ? 'rims' : 'part', it.id);
+  return modal('Povrat: ' + it.internal_code, [war, field('Vraćeni iznos (KM)', price), field('Lokacija (prazno = pult/povrat)', loc), note], [{ label: 'Odustani' }, {
     label: '↩ Vrati na stanje', primary: true,
     onClick: async () => { await POST(`/api/${kind}/${it.id}/return`, { price: price.value, note: note.value, location_code: loc.querySelector('input').value || undefined }); toast('Vraćeno na stanje'); },
   }]);
@@ -204,6 +209,7 @@ route('/dijelovi/:id', async ({ id }, query, main) => {
     ret: sold && can('ROLE_SP_SALE') ? h('button.primary', { onclick: () => act(() => returnDialog('parts', p)) }, '↩ Povrat') : null,
   };
   const more = [
+    !sold ? h('button', { onclick: async () => { const { shareDialog } = await import('./share.js'); shareDialog(p); } }, '📤 Pošalji kupcu (Viber/WhatsApp)') : null,
     can('ROLE_SP_C') ? h('button', { onclick: async () => {
       const side = select('side', p.side, E.side, { placeholder: 'Ista strana' });
       await modal('Kopiraj dio', [h('p.muted', 'Napravi novi dio sa istim podacima (nova šifra).'), field('Strana', side)], [{ label: 'Odustani' }, { label: 'Kopiraj', primary: true, onClick: async () => { const r = await POST(`/api/parts/${id}/copy`, side.value ? { side: side.value } : {}); go('/dijelovi/' + r.id); } }]);
@@ -263,7 +269,16 @@ route('/dijelovi/:id', async ({ id }, query, main) => {
   };
   renderTab();
 
+  const demandBox = h('div');
+  if (!sold) GET('/api/demand/for-part/' + id).then(ds => {
+    if (!ds.length) return;
+    clear(demandBox, h('div.card', { style: { borderLeft: '5px solid var(--ok)', background: 'var(--okl)' } },
+      h('b', `📝 Ovaj dio su tražili kupci (${ds.length}) — nazovite ih:`),
+      ds.map(d => h('div', { style: { marginTop: '4px' } }, h('b', d.customer_name || 'kupac'), ' ', d.phone ? h('a', { href: 'tel:' + d.phone.replace(/[^\d+]/g, '') }, '📞 ' + d.phone) : '', h('span.muted', ' · ' + fmtDate(d.created_date) + (d.note ? ' · ' + d.note : '')),
+        h('button.sm', { style: { marginLeft: '8px' }, onclick: () => run(() => PUT('/api/demand/' + d.id, { status: 'NOTIFIED', matched_part_id: id }), 'Označeno').then(reload) }, '📞 Javio sam')))));
+  }).catch(() => {});
   return h('div',
+    demandBox,
     h('div.art-head', h('button.icon', { onclick: () => history.back() }, '←'), h('span.code', p.internal_code),
       h('div.ttl', h('h1', p.title), h('div.muted', [p.type_title, p.catalog_number ? 'Kat. br. ' + p.catalog_number : '', p.location_code ? '📍 ' + p.location_code : ''].filter(Boolean).join(' · '))),
       h('div', { style: { textAlign: 'right' } }, p.price ? h('div.price', fmtMoney(p.price, p.currency_id)) : null, statusBadge(p.status))),
@@ -378,6 +393,7 @@ async function partForm(p, query, main) {
     if (isNew) d.children = [...form.querySelectorAll('[data-child]:checked')].map(c => ({ type_id: c.dataset.child }));
     if (isNew) {
       const r = await run(() => POST('/api/parts', d));
+      GET('/api/demand/for-part/' + r.id).then(ds => { if (ds.length) toast(`📝 Ovaj dio je tražilo ${ds.length} kupaca — pogledajte na dijelu!`); }).catch(() => {});
       if (next) {
         const np = await GET('/api/parts/' + r.id);
         lastCreated = np;
@@ -412,7 +428,8 @@ async function partForm(p, query, main) {
       field('Marka', makeC, { req: true }), field('Model', modelC, { req: true, wide: true }), field('Godište', yearI),
       h('div.sect', 'Dio'),
       field('Vrsta dijela', typeC, { req: true, wide: true }), field('Strana', sideS),
-      h('label.field', h('span', 'Kataloški broj', catReq), catI),
+      h('div.field', h('span', 'Kataloški broj', catReq), h('div.row', { style: { flexWrap: 'nowrap', gap: '4px' } }, catI,
+        h('button', { type: 'button', title: 'Pročitaj sa slike naljepnice', onclick: async () => { const n = await readCatalogFromPhoto(); if (n) { catI.value = n.toUpperCase(); catI.dispatchEvent(new Event('change')); toast('Upisano: ' + n); } } }, '📷'))),
       h('div.field', h('span', ' '), check('catalog_number_damaged', p.catalog_number_damaged, 'Kat. broj nečitljiv/oštećen')),
       field('Kat. broj proizvođača', input('catalog_number_manufacturer', p.catalog_number_manufacturer, { maxlength: 100 })),
       h('label.field', h('span', 'Cijena'), priceI, priceHint), field('Valuta', select('currency_id', p.currency_id || L.currency, L.currencies.map(c => ({ value: c, label: c === 'BAM' ? 'KM (BAM)' : c })), { empty: false })),

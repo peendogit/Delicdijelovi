@@ -1,7 +1,7 @@
 import { h, route, GET, img, fmtDT, fmtMoney, go, reqBadge, can, badge } from '../lib.js';
 
 route('/', async () => {
-  const d = await GET('/api/dashboard');
+  const [d, dem] = await Promise.all([GET('/api/dashboard'), can('ROLE_SP_R', 'ROLE_SP', 'ROLE_REQ_C') ? GET('/api/demand?status=AVAILABLE').catch(() => null) : null]);
   const c = d.counts;
   const stat = (n, l, path) => h('div.stat', { onclick: () => go(path), style: { cursor: 'pointer' } }, h('b', n.toLocaleString('bs-BA')), h('span', l));
   const quick = h('div.actions', { style: { marginBottom: '12px' } },
@@ -26,5 +26,7 @@ route('/', async () => {
     h('div.head', h('h1', 'Početna')),
     h('div.stats', stat(c.parts, 'Dijelova na stanju', '/dijelovi'), stat(c.req, 'Aktivnih naloga', '/nalozi'), stat(c.vehicles, 'Vozila', '/vozila'), stat(c.rims, 'Felni na stanju', '/felne')),
     quick,
+    dem && dem.rows.length ? h('div.card', { style: { borderLeft: '5px solid var(--ok)', cursor: 'pointer' }, onclick: () => go('/trazeno?status=AVAILABLE') },
+      h('b', { style: { color: 'var(--ok)', fontSize: '15px' } }, `📝 Kupci su tražili, a sada imamo: ${dem.rows.length}`), h('div.muted', 'Dodirnite da vidite koga treba nazvati')) : null,
     h('div.grid2', w));
 });

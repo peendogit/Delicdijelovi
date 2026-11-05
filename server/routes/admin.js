@@ -97,7 +97,7 @@ app.del('/api/admin/:entity/:id', ctx => {
 });
 
 // Podešavanja (core_configuration)
-const SECRET = new Set(['OLX_CLIENT_TOKEN', 'PA_ACCESS_TOKEN', 'OLX_PASSWORD']);
+const SECRET = new Set(['OLX_CLIENT_TOKEN', 'PA_ACCESS_TOKEN', 'OLX_PASSWORD', 'ANTHROPIC_API_KEY']);
 app.get('/api/config', ctx => {
   need(ctx.user, 'ROLE_SUPERADMIN', 'ROLE_SP_ADM');
   return all('SELECT * FROM core_configuration ORDER BY name').map(r => (SECRET.has(r.name) && r.string_value ? { ...r, string_value: '••••••', secret: true } : r));

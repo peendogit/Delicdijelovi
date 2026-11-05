@@ -160,6 +160,7 @@ async function tabPotraznja(q, box) {
   clear(box,
     h('div.card', h('div.row', h('b', 'Marka:'), mk, h('span.muted', 'Sve je po tačnom modelu (generacija i godišta), npr. „Mercedes ML W164 (05-08)”. Klik na red otvara dijelove, klik na model otvara pregled modela.'))),
     drill,
+    h('div', { id: 'demstats' }),
     card('🚗 Najtraženija vozila — za koje modele se najviše prodaje dijelova',
       table([{ l: 'Vozilo (tačan model)', f: r => h('b', r.model) }, { l: 'Prodatih dijelova', n: 1, f: r => h('b', fmtNum(r.sold)) }, { l: 'Promet', n: 1, f: r => fmtMoney(r.revenue) },
         { l: 'Vrsta dijelova traženo', n: 1, k: 'types' }, { l: 'Od toga fali', n: 1, f: r => (r.missing ? badge(r.missing + ' vrsta', 'orange') : '0') }, { l: 'Na stanju', n: 1, f: r => fmtNum(r.stock) },
@@ -171,6 +172,13 @@ async function tabPotraznja(q, box) {
       table([{ l: 'Dio', f: r => h('span', h('b', r.type), h('div.muted', r.grp)) }, { l: 'Vozilo', k: 'model' }, { l: 'Na stanju', n: 1, f: r => fmtNum(r.stock) }, { l: 'Prodato', n: 1, k: 'sold' },
         { l: 'Zalihe za', n: 1, f: r => (r.months_of_stock == null ? 'ne prodaje se' : Math.round(r.months_of_stock / 12) + ' god.') }], d.overstock, openParts)));
   if (q.model) openModel(q.model);
+  GET('/api/demand/stats?' + qs({ months })).then(ds => {
+    const el = box.querySelector('#demstats'); if (!el) return;
+    clear(el, card(`📝 Šta kupci traže, a nismo imali (${ds.total.n || 0} zapisa, ${ds.total.done || 0} riješeno)`,
+      ds.rows.length ? table([{ l: 'Dio', f: r => h('b', r.type_title || '—') }, { l: 'Vozilo', f: r => r.model_label || '' }, { l: 'Puta traženo', n: 1, f: r => h('b', r.n) },
+        { l: 'Sad na stanju', n: 1, f: r => (r.stock ? badge(r.stock + ' kom', 'green') : badge('NEMA', 'red')) }, { l: 'Zadnji put', f: r => fmtDate(r.last) }], ds.rows)
+        : h('p.muted', 'Još nema zapisa. Radnici upisuju u meniju „📝 Tražili, nismo imali” kad kupac traži nešto što nemate — ovdje se onda vidi prava potražnja, ne samo prodaja.')));
+  }).catch(() => {});
 }
 
 async function tabVozila(q, box) {

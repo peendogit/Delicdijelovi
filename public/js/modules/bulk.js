@@ -1,5 +1,5 @@
 // Pretraga liste kataloških brojeva
-import { h, clear, route, POST, go, can, img, E, fmtMoney, fmtDate, textarea, check, toast, run, badge, empty, loading, printLabels } from '../lib.js';
+import { h, clear, route, POST, go, can, img, E, fmtMoney, fmtDate, textarea, check, toast, run, badge, empty, loading, printLabels, input, field, modal, readCatalogFromPhoto } from '../lib.js';
 import { reqDialog } from './parts.js';
 
 // Lista može biti u redovima, ili odvojena zarezom/tačka-zarezom/tabom. Razmaci unutar broja se ignorišu.
@@ -87,6 +87,11 @@ route('/lista', async (params, query, main) => {
           if (!selected.size) return toast('Ništa nije pronađeno', 'err');
           if (await reqDialog([...selected])) toast('Nalog poslat magacinu');
         } }, '📋 Nalog za pronađene') : null,
+        d.total - d.found ? h('button', { onclick: async () => {
+          const miss = d.results.filter(r => !r.unsold).map(r => r.input);
+          const name = input('n', ''), phone = input('p', '', { type: 'tel' });
+          if (await modal(`Zapisati ${miss.length} brojeva kao traženo?`, [h('p.muted', miss.join(', ')), field('Ime kupca', name), field('Telefon', phone)], [{ label: 'Odustani' }, { label: 'Zapiši', primary: true, onClick: () => POST('/api/demand/bulk', { catalog_numbers: miss, customer_name: name.value, phone: phone.value }) }])) toast('Zapisano u „Tražili, nismo imali”');
+        } }, '📝 Zapiši što nema') : null,
         h('button', { onclick: () => {
           const ps = d.results.flatMap(r => r.rows.filter(p => p.status === 'UNSOLD' && (!selected.size || selected.has(p.id))));
           if (ps.length) printLabels(ps.map(p => ({ code: p.internal_code, title: p.title, sub: [p.catalog_number, p.location_code].filter(Boolean).join(' · ') })));
@@ -98,6 +103,7 @@ route('/lista', async (params, query, main) => {
   clear(main, h('div',
     h('div.head', h('h1', 'Pretraga liste kataloških brojeva')),
     h('div.card', ta, h('div.row', { style: { marginTop: '8px' } }, info, h('div.grow'), partial,
+      h('button', { onclick: async () => { const n = await readCatalogFromPhoto(); if (n) { ta.value = (ta.value.trim() ? ta.value.trim() + '\n' : '') + n; upd(); } } }, '📷 Sa slike'),
       h('button', { onclick: () => { ta.value = ''; last = { text: '', partial: false, data: null }; upd(); clear(res); ta.focus(); } }, 'Očisti'),
       h('button.primary', { onclick: search }, '🔍 Traži sve'))),
     res));

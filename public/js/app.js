@@ -10,16 +10,24 @@ import './modules/admin.js';
 import './modules/analytics.js';
 import './modules/pricing.js';
 import './modules/bulk.js';
+import './modules/calc.js';
+import './modules/demand.js';
+import './modules/sales.js';
 
 const app = $('#app');
 
 const NAV = [
   ['/', '🏠', 'Početna', () => true],
   ['/dijelovi', '🔧', 'Dijelovi', () => can('ROLE_SP_R', 'ROLE_SP')],
+  ['/trazeno', '📝', 'Tražili, nismo imali', () => can('ROLE_SP_R', 'ROLE_SP', 'ROLE_REQ_C')],
   ['/lista', '🔎', 'Pretraga liste', () => can('ROLE_SP_R', 'ROLE_SP')],
   ['/cijene', '💡', 'Prijedlozi cijena', () => can('ROLE_SP_U')],
+  ['/prodaja', '🧾', 'Prodaja / otpremnice', () => can('ROLE_SP_SALE', 'ROLE_SP_R')],
+  ['/posiljke', '🚚', 'Pošiljke i pouzeće', () => can('ROLE_SP_SALE', 'ROLE_WHS_CLERK')],
+  ['/kupci', '👤', 'Kupci', () => can('ROLE_SP_SALE', 'ROLE_SP_R')],
   ['/nalozi', '📋', 'Nalozi', () => can('ROLE_REQ', 'ROLE_REQ_R', 'ROLE_REQ_C', 'ROLE_REQ_ST', 'ROLE_WHS_CLERK')],
   ['/vozila', '🚗', 'Vozila (donori)', () => can('ROLE_VEH_R', 'ROLE_VEH')],
+  ['/kalkulator', '🧮', 'Kalkulator otkupa', () => can('ROLE_ANL', 'ROLE_VEH_C', 'ROLE_VEH_U')],
   ['/felne', '⚙️', 'Felne', () => can('ROLE_RIMS_R', 'ROLE_RIMS')],
   ['/magacin', '🏬', 'Magacin', () => can('ROLE_WHS_R', 'ROLE_WHS', 'ROLE_WHS_CLERK', 'ROLE_SP_LOC_U')],
   ['/premjestanje', '📦', 'Premještanje', () => can('ROLE_SP_LOC_U', 'ROLE_WHS_CLERK')],

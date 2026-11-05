@@ -24,7 +24,7 @@ route('/vozila', async (params, query, main) => {
   const st = select('status', q.status, E.vstatus, { placeholder: 'Svi statusi' }); st.onchange = () => set('status', st.value);
   const mk = combo('make_id', q.make_id, makeItems(L), { placeholder: 'Marka' }); mk.addEventListener('change', () => set('make_id', mk.value));
   clear(main, h('div',
-    h('div.head', h('h1', 'Vozila (donori)'), can('ROLE_VEH_C') ? fab('Novo vozilo', () => go('/vozila/novo')) : null),
+    h('div.head', h('h1', 'Vozila (donori)'), h('button', { onclick: () => go('/kalkulator') }, '🧮 Kalkulator otkupa'), can('ROLE_VEH_C') ? fab('Novo vozilo', () => go('/vozila/novo')) : null),
     h('div.card', h('div.filters', { style: { marginTop: 0 } }, s, mk, st)), res));
   load();
 });

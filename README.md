@@ -18,6 +18,12 @@ Na Node.js 22.13+ ne treba nikakav paket. Na Node.js 20 pokreni jednom `npm inst
 | **Premještanje** | ekran za magacionera: lokacija pa šifre dijelova jedna za drugom (Enter ili 📷 skeniranje kamerom) |
 | **Inventura** | izaberi policu/kutiju, skeniraj sve što je fizički na njoj → šta nedostaje, šta je višak (višak se jednim dugmetom upiše na tu lokaciju) |
 | **Prijedlozi cijena** | za dijelove bez cijene predlaže cijenu iz vaših stvarnih prodaja (isti kat. broj → isti model → marka → vrsta), sa pouzdanošću; odobravanje pojedinačno ili masovno, svako odobravanje se može poništiti. Prijedlog se vidi i pri unosu novog dijela i na dijelu (💡) |
+| **Kalkulator otkupa** | model + godište + tražena cijena → koliko takvo vozilo donese od dijelova (iz vaše istorije), preporučeni maksimum, šta se za taj model traži |
+| **Tražili, a nismo imali** | brz upis šta je kupac tražio; kad se takav dio unese — upozorenje na dijelu i na početnoj; prodaja tom kupcu zatvara zapis |
+| **Prodaja / otpremnice / kupci** | prodaja jednog ili više dijelova odjednom sa kupcem i načinom plaćanja, štampa otpremnice, istorija kupca, garancija (vidi se na povratu) |
+| **Pošiljke i pouzeće** | za slanje → poslano (broj pošiljke) → isporučeno; koliko pouzeća duguje kurir, „novac stigao” |
+| **Pošalji kupcu** | slike + tekst na Viber/WhatsApp, javna stranica dijela `/p/ŠIFRA` |
+| **Kataloški broj sa slike** | 📷 pored kataloškog broja: AI pročita naljepnicu (treba AI ključ u Podešavanjima) |
 | **Analitika** | promet, prodato, uneseno, po radnicima (unos, slike, premještanja, prodaja, nalozi), najprodavanije vrste i marke, najisplativija vozila, stanje skladišta |
 | **Korisnici** | korisnici, lozinke, profili i prava (ista prava kao stari program: ROLE_SP_*, ROLE_VEH_*, ROLE_REQ_* …) |
 | **Administracija** | vrste dijelova (strane, pod-dijelovi, pravila), grupe, marke, modeli, šifarnici felni, tipovi lokacija, podešavanja (opisi oglasa…), pozadinski zadaci, OLX |

@@ -236,7 +236,7 @@ app.get('/api/analytics/workers', ctx => {
 // ---------------------------------------------------------------------------
 // Ulaganja u vozila: nabavna cijena (vehicle.price) + dodatni troškovi, naspram zarade od dijelova i prodaje cijelih vozila
 // ---------------------------------------------------------------------------
-function vehicleMoney() {
+export function vehicleMoney() {
   const veh = all(`SELECT v.id, v.internal_code, v.model_id, v.model_year, v.created_date, v.status, coalesce(v.price,0) price FROM vehicle v WHERE v.active=1`);
   const costs = all('SELECT vehicle_id, amount, cost_date d FROM app_vehicle_cost WHERE active=1');
   // sve prodaje dijelova sa vozila (povrati umanjuju)

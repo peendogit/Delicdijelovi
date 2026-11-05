@@ -96,16 +96,16 @@ async function configView(box) {
     CURRENCY: 'Osnovna valuta', WAREHOUSE_DEFAULT_ASSET: 'Podrazumijevana lokacija novih dijelova (ID)', WAREHOUSE_RETURN_ASSET: 'Lokacija za izdavanje/povrat (ID)',
     OLX_ENABLED: 'OLX integracija uključena', OLX_CLIENT_ID: 'OLX client ID', OLX_CLIENT_TOKEN: 'OLX client token', OLX_USERNAME: 'OLX korisničko ime', OLX_PASSWORD: 'OLX lozinka', OLX_SHORT_DESCRIPTION: 'OLX kratki opis',
     INTEGRATION_DESCRIPTION_PARTS: 'Opis oglasa — dijelovi', INTEGRATION_DESCRIPTION_RIMS: 'Opis oglasa — felne', INTEGRATION_DESCRIPTION_VEHICLE: 'Opis oglasa — vozila',
-    SPARE_PART_TYPE_UPPERCASE: 'Naziv vrste velikim slovima', PA_ENABLED: 'PolovniAutomobili integracija', PA_ACCESS_TOKEN: 'PolovniAutomobili token', WEB_APPLICATION_ADDRESS: 'Adresa aplikacije',
+    SPARE_PART_TYPE_UPPERCASE: 'Naziv vrste velikim slovima', COMPANY_NAME: 'Naziv firme (otpremnica)', COMPANY_ADDRESS: 'Adresa firme', COMPANY_PHONE: 'Telefon firme', WARRANTY_DAYS: 'Garancija (dana)', ANTHROPIC_API_KEY: 'AI ključ (prepoznavanje sa slike)', PA_ENABLED: 'PolovniAutomobili integracija', PA_ACCESS_TOKEN: 'PolovniAutomobili token', WEB_APPLICATION_ADDRESS: 'Adresa aplikacije',
   };
-  for (const n of ['OLX_USERNAME', 'OLX_PASSWORD']) if (!rows.find(r => r.name === n)) rows.push({ name: n, string_value: null });
+  for (const n of ['OLX_USERNAME', 'OLX_PASSWORD', 'ANTHROPIC_API_KEY']) if (!rows.find(r => r.name === n)) rows.push({ name: n, string_value: null });
   clear(box, h('div.card.p0', h('div.list', rows.map(r => {
     const isBool = r.boolean_value != null && r.string_value == null;
     let el;
     if (isBool) el = h('input', { type: 'checkbox', checked: !!r.boolean_value, onchange: e => run(() => PUT('/api/config/' + r.name, { field: 'boolean_value', value: e.target.checked }), 'Sačuvano') });
     else {
       const long = (r.string_value || '').length > 60 || r.name.startsWith('INTEGRATION_DESCRIPTION');
-      el = long ? textarea(r.name, r.string_value, { rows: 6 }) : input(r.name, r.string_value, { type: r.name.includes('PASSWORD') ? 'password' : 'text' });
+      el = long ? textarea(r.name, r.string_value, { rows: 6 }) : input(r.name, r.string_value, { type: /PASSWORD|API_KEY|TOKEN/.test(r.name) ? 'password' : 'text' });
       el.onchange = () => run(() => PUT('/api/config/' + r.name, { field: 'string_value', value: el.value }), 'Sačuvano');
     }
     return h('div.item', { style: { cursor: 'default', flexWrap: 'wrap' } }, h('div.bd', { style: { minWidth: '200px' } }, h('div.t', LBL[r.name] || r.name), h('div.s', r.name)), h('div', { style: { flex: isBool ? '0' : '2 1 300px' } }, el));

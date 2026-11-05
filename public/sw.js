@@ -1,9 +1,9 @@
 // Service worker: aplikacija se može instalirati i otvara se i bez interneta (zadnja verzija ekrana).
 // Kod (HTML/JS/CSS) se uvijek prvo traži sa servera — ažuriranja stižu odmah; keš je samo rezerva.
-const CACHE = 'delic-v2';
+const CACHE = 'delic-v3';
 const SHELL = ['/', '/index.html', '/app.css', '/js/app.js', '/js/lib.js', '/noimg.svg', '/favicon.svg', '/manifest.webmanifest',
   '/icons/icon-192.png', '/icons/icon-512.png',
-  ...['dashboard', 'parts', 'vehicles', 'rims', 'whs', 'req', 'users', 'admin', 'analytics', 'pricing', 'bulk'].map(m => `/js/modules/${m}.js`)];
+  ...['dashboard', 'parts', 'vehicles', 'rims', 'whs', 'req', 'users', 'admin', 'analytics', 'pricing', 'bulk', 'calc', 'demand', 'sales', 'share'].map(m => `/js/modules/${m}.js`)];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).catch(() => {}));

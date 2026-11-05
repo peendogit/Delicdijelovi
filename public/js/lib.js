@@ -373,3 +373,24 @@ export function toolbarN(k, ...btns) {
   const prim = b.slice(0, k).sort((x, y) => y.classList.contains('primary') - x.classList.contains('primary'));
   return toolbar(prim, b.slice(k));
 }
+
+// ---------- Kataloški broj sa slike (AI) ----------
+export function readCatalogFromPhoto() {
+  return new Promise(resolve => {
+    const fi = h('input', { type: 'file', accept: 'image/*', capture: 'environment', style: { display: 'none' } });
+    fi.onchange = async () => {
+      const f = fi.files[0]; fi.remove(); if (!f) return resolve(null);
+      toast('Čitam broj sa slike…');
+      try {
+        const image = await new Promise((res, rej) => { const im = new Image(); im.onload = () => { const s = Math.min(1, 1600 / Math.max(im.width, im.height)); const c = document.createElement('canvas'); c.width = im.width * s; c.height = im.height * s; c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); res(c.toDataURL('image/jpeg', 0.85)); URL.revokeObjectURL(im.src); }; im.onerror = rej; im.src = URL.createObjectURL(f); });
+        const r = await POST('/api/ocr', { image });
+        if (!r.numbers.length) { toast('Broj nije prepoznat' + (r.note ? ': ' + r.note : '') + ' — probajte bližu, oštriju sliku', 'err'); return resolve(null); }
+        if (r.numbers.length === 1) return resolve(r.numbers[0]);
+        const pick = await modal('Koji je kataloški broj?', [r.manufacturer ? h('p.muted', 'Proizvođač: ' + r.manufacturer) : null,
+          h('div.sheet-list', r.numbers.map(n => h('button', { onclick: () => { document.querySelector('.modal-bg')?.remove(); resolve(n); } }, n)))], [{ label: 'Odustani' }]);
+        if (!pick) resolve(null);
+      } catch (e) { toast(e.message, 'err'); resolve(null); }
+    };
+    document.body.append(fi); fi.click();
+  });
+}
