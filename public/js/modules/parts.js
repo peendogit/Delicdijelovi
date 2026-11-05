@@ -130,7 +130,7 @@ route('/dijelovi', async (params, query, main) => {
   sortS.style.width = 'auto'; sortS.style.minHeight = '30px'; sortS.style.padding = '3px 8px';
 
   clear(main, h('div',
-    h('div.head', h('h1', 'Katalog dijelova'), can('ROLE_SP_C') ? fab('Novi dio', () => go('/dijelovi/novi')) : null),
+    h('div.head', h('h1', 'Katalog dijelova'), h('button', { onclick: () => go('/lista') }, '🔎 Pretraga liste'), can('ROLE_SP_C') ? fab('Novi dio', () => go('/dijelovi/novi')) : null),
     h('div.vbar',
       h('div.vlabel', h('b', '1'), 'Izbor vozila', h('span', { style: { fontWeight: 400, opacity: .7, textTransform: 'none' } }, '— zatim izaberite grupu dijelova')),
       field('Marka', makeC), field('Model', modelC), field('Pretraga', sInp),

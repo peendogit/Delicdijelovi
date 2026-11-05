@@ -58,6 +58,8 @@ db.exec(`
 CREATE INDEX IF NOT EXISTS ix_sp_status ON spare_part(active, status, created_date);
 CREATE INDEX IF NOT EXISTS ix_sp_code ON spare_part(internal_code);
 CREATE INDEX IF NOT EXISTS ix_sp_cat ON spare_part(catalog_number);
+CREATE INDEX IF NOT EXISTS ix_sp_catn ON spare_part(upper(replace(replace(replace(replace(catalog_number,' ',''),'-',''),'.',''),'/','')));
+CREATE INDEX IF NOT EXISTS ix_sp_catmn ON spare_part(upper(replace(replace(replace(replace(catalog_number_manufacturer,' ',''),'-',''),'.',''),'/','')));
 CREATE INDEX IF NOT EXISTS ix_sp_loc2 ON spare_part(location_id, status);
 CREATE INDEX IF NOT EXISTS ix_sp_veh2 ON spare_part(vehicle_id, status);
 CREATE INDEX IF NOT EXISTS ix_sp_type ON spare_part(type_id);

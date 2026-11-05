@@ -22,6 +22,7 @@ import './routes/files.js';
 import './routes/olx.js';
 import './routes/public.js';
 import './routes/pricing.js';
+import './routes/bulk.js';
 import { startScheduler } from './scheduler.js';
 
 const PORT = Number(process.env.PORT || 3010);

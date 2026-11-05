@@ -9,12 +9,14 @@ import './modules/users.js';
 import './modules/admin.js';
 import './modules/analytics.js';
 import './modules/pricing.js';
+import './modules/bulk.js';
 
 const app = $('#app');
 
 const NAV = [
   ['/', '🏠', 'Početna', () => true],
   ['/dijelovi', '🔧', 'Dijelovi', () => can('ROLE_SP_R', 'ROLE_SP')],
+  ['/lista', '🔎', 'Pretraga liste', () => can('ROLE_SP_R', 'ROLE_SP')],
   ['/cijene', '💡', 'Prijedlozi cijena', () => can('ROLE_SP_U')],
   ['/nalozi', '📋', 'Nalozi', () => can('ROLE_REQ', 'ROLE_REQ_R', 'ROLE_REQ_C', 'ROLE_REQ_ST', 'ROLE_WHS_CLERK')],
   ['/vozila', '🚗', 'Vozila (donori)', () => can('ROLE_VEH_R', 'ROLE_VEH')],
